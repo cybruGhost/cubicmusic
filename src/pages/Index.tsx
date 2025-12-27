@@ -5,10 +5,9 @@ import { Player } from '@/components/Player';
 import { MusicGrid } from '@/components/MusicGrid';
 import { QuickPicks } from '@/components/QuickPicks';
 import { MoodChips } from '@/components/MoodChips';
-import { PlayerProvider } from '@/context/PlayerContext';
 import { useSearch } from '@/hooks/useSearch';
 
-function MusicApp() {
+export default function Index() {
   const [activeTab, setActiveTab] = useState('home');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeMood, setActiveMood] = useState<string>();
@@ -71,9 +70,9 @@ function MusicApp() {
 
                 {/* Main Grid */}
                 <section>
-                  <MusicGrid 
-                    videos={videos.slice(8)} 
-                    loading={loading} 
+                  <MusicGrid
+                    videos={videos.slice(8)}
+                    loading={loading}
                     title="Recommended for you"
                   />
                 </section>
@@ -82,9 +81,9 @@ function MusicApp() {
 
             {searchQuery && (
               <section>
-                <MusicGrid 
-                  videos={videos} 
-                  loading={loading} 
+                <MusicGrid
+                  videos={videos}
+                  loading={loading}
                   title={`Results for "${searchQuery}"`}
                 />
               </section>
@@ -99,10 +98,3 @@ function MusicApp() {
   );
 }
 
-export default function Index() {
-  return (
-    <PlayerProvider>
-      <MusicApp />
-    </PlayerProvider>
-  );
-}
