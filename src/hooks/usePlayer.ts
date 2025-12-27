@@ -11,7 +11,9 @@ declare global {
 export function usePlayer() {
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [isAPIReady, setIsAPIReady] = useState(false);
+  const isAPIReadyRef = useRef(false);
+  const pendingTrackRef = useRef<Video | null>(null);
+  
   const [state, setState] = useState<PlayerState>({
     currentTrack: null,
     isPlaying: false,
@@ -21,10 +23,14 @@ export function usePlayer() {
     queue: [],
   });
 
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
   // Load YouTube IFrame API
   useEffect(() => {
     if (window.YT && window.YT.Player) {
-      setIsAPIReady(true);
+      isAPIReadyRef.current = true;
+      initPlayer();
       return;
     }
 
@@ -34,7 +40,8 @@ export function usePlayer() {
     firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
 
     window.onYouTubeIframeAPIReady = () => {
-      setIsAPIReady(true);
+      isAPIReadyRef.current = true;
+      initPlayer();
     };
 
     return () => {
@@ -47,12 +54,7 @@ export function usePlayer() {
     if (!containerRef.current) {
       const container = document.createElement('div');
       container.id = 'youtube-player-container';
-      container.style.position = 'absolute';
-      container.style.top = '-9999px';
-      container.style.left = '-9999px';
-      container.style.width = '1px';
-      container.style.height = '1px';
-      container.style.overflow = 'hidden';
+      container.style.cssText = 'position:absolute;top:-9999px;left:-9999px;width:1px;height:1px;overflow:hidden;';
       document.body.appendChild(container);
       containerRef.current = container;
 
@@ -69,9 +71,8 @@ export function usePlayer() {
     };
   }, []);
 
-  // Initialize YouTube player when API is ready
-  useEffect(() => {
-    if (!isAPIReady || playerRef.current) return;
+  const initPlayer = useCallback(() => {
+    if (playerRef.current || !document.getElementById('youtube-player')) return;
 
     playerRef.current = new window.YT.Player('youtube-player', {
       height: '1',
@@ -87,119 +88,113 @@ export function usePlayer() {
       },
       events: {
         onReady: () => {
-          playerRef.current.setVolume(state.volume);
+          playerRef.current.setVolume(stateRef.current.volume);
+          // Play pending track if any
+          if (pendingTrackRef.current) {
+            const track = pendingTrackRef.current;
+            pendingTrackRef.current = null;
+            playerRef.current.loadVideoById(track.videoId);
+            setState(s => ({ ...s, currentTrack: track, isPlaying: true, currentTime: 0 }));
+          }
         },
         onStateChange: (event: any) => {
           const playerState = event.data;
           // YT.PlayerState: ENDED=0, PLAYING=1, PAUSED=2, BUFFERING=3
           if (playerState === 0) {
-            // Video ended
-            setState(prev => ({ ...prev, isPlaying: false }));
-            playNextTrack();
+            // Video ended - play next
+            const currentQueue = stateRef.current.queue;
+            if (currentQueue.length > 0) {
+              const [next, ...rest] = currentQueue;
+              playerRef.current.loadVideoById(next.videoId);
+              setState(s => ({ ...s, currentTrack: next, queue: rest, isPlaying: true, currentTime: 0 }));
+            } else {
+              setState(s => ({ ...s, isPlaying: false }));
+            }
           } else if (playerState === 1) {
-            // Playing
-            setState(prev => ({ 
-              ...prev, 
-              isPlaying: true,
-              duration: playerRef.current.getDuration() || 0
-            }));
+            const duration = playerRef.current?.getDuration?.() || 0;
+            setState(s => ({ ...s, isPlaying: true, duration }));
           } else if (playerState === 2) {
-            // Paused
-            setState(prev => ({ ...prev, isPlaying: false }));
+            setState(s => ({ ...s, isPlaying: false }));
           }
         },
       },
     });
-  }, [isAPIReady]);
+  }, []);
 
   // Update current time periodically
   useEffect(() => {
-    if (!state.isPlaying || !playerRef.current) return;
+    if (!state.isPlaying) return;
 
     const interval = setInterval(() => {
-      if (playerRef.current && playerRef.current.getCurrentTime) {
+      if (playerRef.current?.getCurrentTime) {
         const currentTime = playerRef.current.getCurrentTime() || 0;
         const duration = playerRef.current.getDuration() || 0;
-        setState(prev => ({ ...prev, currentTime, duration }));
+        setState(s => ({ ...s, currentTime, duration }));
       }
     }, 500);
 
     return () => clearInterval(interval);
   }, [state.isPlaying]);
 
-  const playNextTrack = useCallback(() => {
-    setState(prev => {
-      if (prev.queue.length > 0) {
-        const [next, ...rest] = prev.queue;
-        // Schedule the play for next tick to avoid state issues
-        setTimeout(() => {
-          if (playerRef.current && playerRef.current.loadVideoById) {
-            playerRef.current.loadVideoById(next.videoId);
-          }
-        }, 0);
-        return { ...prev, currentTrack: next, queue: rest, isPlaying: true };
-      }
-      return { ...prev, isPlaying: false };
-    });
-  }, []);
-
   const playTrack = useCallback((track: Video) => {
-    if (!playerRef.current || !playerRef.current.loadVideoById) {
-      console.log('Player not ready yet, waiting...');
-      // Retry after a short delay if player isn't ready
-      setTimeout(() => playTrack(track), 500);
+    if (!playerRef.current?.loadVideoById) {
+      // Store pending track to play when ready
+      pendingTrackRef.current = track;
+      setState(s => ({ ...s, currentTrack: track, isPlaying: false, currentTime: 0 }));
       return;
     }
 
     playerRef.current.loadVideoById(track.videoId);
-    setState(prev => ({ 
-      ...prev, 
-      currentTrack: track, 
-      isPlaying: true,
-      currentTime: 0 
-    }));
+    setState(s => ({ ...s, currentTrack: track, isPlaying: true, currentTime: 0 }));
   }, []);
 
   const togglePlay = useCallback(() => {
-    if (!playerRef.current || !state.currentTrack) return;
+    if (!playerRef.current || !stateRef.current.currentTrack) return;
 
-    if (state.isPlaying) {
+    if (stateRef.current.isPlaying) {
       playerRef.current.pauseVideo();
     } else {
       playerRef.current.playVideo();
     }
-  }, [state.isPlaying, state.currentTrack]);
+  }, []);
 
   const seek = useCallback((time: number) => {
-    if (!playerRef.current) return;
+    if (!playerRef.current?.seekTo) return;
     playerRef.current.seekTo(time, true);
-    setState(prev => ({ ...prev, currentTime: time }));
+    setState(s => ({ ...s, currentTime: time }));
   }, []);
 
   const setVolume = useCallback((volume: number) => {
-    if (playerRef.current && playerRef.current.setVolume) {
-      playerRef.current.setVolume(volume * 100);
+    const vol = Math.round(volume * 100);
+    if (playerRef.current?.setVolume) {
+      playerRef.current.setVolume(vol);
     }
-    setState(prev => ({ ...prev, volume: volume * 100 }));
+    setState(s => ({ ...s, volume: vol }));
   }, []);
 
   const addToQueue = useCallback((track: Video) => {
-    setState(prev => ({ ...prev, queue: [...prev.queue, track] }));
+    setState(s => ({ ...s, queue: [...s.queue, track] }));
   }, []);
 
   const playNext = useCallback(() => {
-    playNextTrack();
-  }, [playNextTrack]);
+    const currentQueue = stateRef.current.queue;
+    if (currentQueue.length > 0 && playerRef.current?.loadVideoById) {
+      const [next, ...rest] = currentQueue;
+      playerRef.current.loadVideoById(next.videoId);
+      setState(s => ({ ...s, currentTrack: next, queue: rest, isPlaying: true, currentTime: 0 }));
+    }
+  }, []);
 
   const playPrevious = useCallback(() => {
-    if (playerRef.current && state.currentTime > 3) {
+    if (playerRef.current?.seekTo && stateRef.current.currentTime > 3) {
       playerRef.current.seekTo(0, true);
+      setState(s => ({ ...s, currentTime: 0 }));
     }
-  }, [state.currentTime]);
+  }, []);
 
   return {
     ...state,
-    volume: state.volume / 100, // Normalize to 0-1 for UI
+    volume: state.volume / 100,
     playTrack,
     togglePlay,
     seek,
