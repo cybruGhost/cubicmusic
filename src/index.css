@@ -1,87 +1,67 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* YouTube Music inspired dark design system */
-
 @layer base {
   :root {
-    --background: 0 0% 7%;
+    --background: 240 10% 4%;
     --foreground: 0 0% 98%;
 
-    --card: 0 0% 11%;
+    --card: 240 10% 6%;
     --card-foreground: 0 0% 98%;
 
-    --popover: 0 0% 11%;
+    --popover: 240 10% 6%;
     --popover-foreground: 0 0% 98%;
 
-    --primary: 0 100% 50%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 174 72% 56%;
+    --primary-foreground: 240 10% 4%;
 
-    --secondary: 0 0% 15%;
+    --secondary: 240 8% 12%;
     --secondary-foreground: 0 0% 98%;
 
-    --muted: 0 0% 18%;
-    --muted-foreground: 0 0% 60%;
+    --muted: 240 8% 16%;
+    --muted-foreground: 240 5% 60%;
 
-    --accent: 0 0% 20%;
+    --accent: 240 8% 14%;
     --accent-foreground: 0 0% 98%;
 
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 0 0% 20%;
-    --input: 0 0% 20%;
-    --ring: 0 100% 50%;
+    --border: 240 8% 18%;
+    --input: 240 8% 18%;
+    --ring: 174 72% 56%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
-    --sidebar-background: 0 0% 7%;
+    /* Sidebar */
+    --sidebar-background: 240 10% 5%;
     --sidebar-foreground: 0 0% 70%;
-    --sidebar-primary: 0 100% 50%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 15%;
+    --sidebar-primary: 174 72% 56%;
+    --sidebar-primary-foreground: 240 10% 4%;
+    --sidebar-accent: 240 8% 12%;
     --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 0 0% 15%;
-    --sidebar-ring: 0 100% 50%;
+    --sidebar-border: 240 8% 15%;
+    --sidebar-ring: 174 72% 56%;
 
-    /* Custom music app tokens */
-    --player-bg: 0 0% 11%;
-    --player-progress: 0 100% 50%;
-    --hover-overlay: 0 0% 100% / 0.1;
-    --glass-bg: 0 0% 11% / 0.9;
+    /* Custom tokens */
+    --gradient-hero: linear-gradient(135deg, hsl(240 10% 4%) 0%, hsl(240 12% 8%) 50%, hsl(200 20% 10%) 100%);
+    --gradient-card: linear-gradient(180deg, hsl(240 10% 8% / 0.8) 0%, hsl(240 10% 6% / 0.9) 100%);
+    --gradient-glow: radial-gradient(ellipse at center, hsl(174 72% 56% / 0.15) 0%, transparent 70%);
+    --shadow-glow: 0 0 60px hsl(174 72% 56% / 0.2);
+    --shadow-card: 0 8px 32px hsl(0 0% 0% / 0.4);
+    
+    --player-bg: 240 10% 6%;
+    --player-progress: 174 72% 56%;
+    
+    --font-display: 'Outfit', system-ui, sans-serif;
   }
 
   .dark {
-    --background: 0 0% 7%;
+    --background: 240 10% 4%;
     --foreground: 0 0% 98%;
-    --card: 0 0% 11%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 11%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 100% 50%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 15%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 18%;
-    --muted-foreground: 0 0% 60%;
-    --accent: 0 0% 20%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 20%;
-    --input: 0 0% 20%;
-    --ring: 0 100% 50%;
-    --sidebar-background: 0 0% 7%;
-    --sidebar-foreground: 0 0% 70%;
-    --sidebar-primary: 0 100% 50%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 15%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 0 0% 15%;
-    --sidebar-ring: 0 100% 50%;
   }
 }
 
@@ -90,20 +70,41 @@
     @apply border-border;
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
-    @apply bg-background text-foreground font-sans antialiased;
-    font-family: 'Inter', system-ui, sans-serif;
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-display);
+    background: var(--gradient-hero);
+    min-height: 100vh;
   }
 }
 
 @layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, hsl(174 72% 56%) 0%, hsl(190 80% 70%) 100%);
+  }
+
+  .glass {
+    @apply backdrop-blur-xl;
+    background: var(--gradient-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .glow {
+    box-shadow: var(--shadow-glow);
+  }
+
   .scrollbar-thin {
     scrollbar-width: thin;
     scrollbar-color: hsl(var(--muted)) transparent;
   }
 
   .scrollbar-thin::-webkit-scrollbar {
-    width: 8px;
+    width: 6px;
   }
 
   .scrollbar-thin::-webkit-scrollbar-track {
@@ -118,11 +119,17 @@
 
 @layer components {
   .music-card {
-    @apply relative cursor-pointer rounded-lg bg-card p-3 transition-all duration-300 hover:bg-accent;
+    @apply relative cursor-pointer rounded-xl bg-card p-3 transition-all duration-300 hover:bg-accent;
+    box-shadow: 0 4px 20px hsl(0 0% 0% / 0.2);
+  }
+
+  .music-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px hsl(0 0% 0% / 0.3);
   }
 
   .music-card-overlay {
-    @apply absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-300 bg-black/40 rounded-lg;
+    @apply absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-300 bg-black/40 rounded-xl;
   }
   
   .music-card:hover .music-card-overlay {
@@ -139,14 +146,31 @@
 
   .player-glass {
     @apply backdrop-blur-xl border-t border-border;
-    background: hsl(var(--glass-bg));
+    background: hsl(var(--player-bg) / 0.95);
   }
 
   .progress-track {
-    @apply h-1 bg-muted rounded-full overflow-hidden cursor-pointer;
+    @apply h-1 bg-muted rounded-full overflow-hidden cursor-pointer transition-all duration-200;
+  }
+
+  .progress-track:hover {
+    @apply h-1.5;
   }
 
   .progress-fill {
-    @apply h-full bg-primary transition-all duration-100;
+    @apply h-full rounded-full transition-all duration-100;
+    background: linear-gradient(90deg, hsl(174 72% 56%) 0%, hsl(190 80% 70%) 100%);
+  }
+
+  .nav-link {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-lg text-muted-foreground transition-all duration-200;
+  }
+
+  .nav-link:hover {
+    @apply bg-accent text-foreground;
+  }
+
+  .nav-link.active {
+    @apply bg-primary/10 text-primary;
   }
 }

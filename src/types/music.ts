@@ -54,3 +54,31 @@ export interface PlayerState {
   duration: number;
   queue: Video[];
 }
+
+export interface LyricsData {
+  plainLyrics?: string;
+  syncedLyrics?: string;
+  source?: string;
+}
+
+export interface UserPlaylist {
+  id: string;
+  name: string;
+  description?: string;
+  thumbnail?: string;
+  tracks: Video[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ChannelResult {
+  type: 'channel';
+  author: string;
+  authorId: string;
+  authorUrl: string;
+  authorVerified: boolean;
+  authorThumbnails: VideoThumbnail[];
+  subCount: number;
+  videoCount: number;
+  description: string;
+}
