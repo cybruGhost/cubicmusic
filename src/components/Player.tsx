@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Play, 
   Pause, 
@@ -7,18 +7,20 @@ import {
   Volume2, 
   VolumeX,
   Repeat,
+  Repeat1,
   Shuffle,
   Heart,
   ListMusic,
-  ChevronUp,
-  X,
-  Mic2
+  Mic2,
+  Maximize2,
+  Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayerContext } from '@/context/PlayerContext';
 import { Slider } from '@/components/ui/slider';
 import { cn } from '@/lib/utils';
-import { LyricsDisplay } from './lyrics/LyricsDisplay';
+import { addFavorite, removeFavorite, isFavorite, addToHistory } from '@/lib/storage';
+import { toast } from 'sonner';
 
 function formatTime(seconds: number): string {
   if (!seconds || isNaN(seconds)) return '0:00';
@@ -33,9 +35,13 @@ function getThumbnail(video: { videoThumbnails?: { url: string; width: number }[
   return thumbnail.url.startsWith('//') ? `https:${thumbnail.url}` : thumbnail.url;
 }
 
-export function Player() {
-  const [showLyrics, setShowLyrics] = useState(false);
+interface PlayerProps {
+  onLyricsOpen?: () => void;
+}
+
+export function Player({ onLyricsOpen }: PlayerProps) {
   const [liked, setLiked] = useState(false);
+  const [showQueue, setShowQueue] = useState(false);
   
   const {
     currentTrack,
@@ -43,12 +49,67 @@ export function Player() {
     volume,
     currentTime,
     duration,
+    queue,
+    shuffle,
+    repeat,
     togglePlay,
     seek,
     setVolume,
     playNext,
     playPrevious,
+    toggleShuffle,
+    toggleRepeat,
+    removeFromQueue,
+    playTrack,
   } = usePlayerContext();
+
+  useEffect(() => {
+    if (currentTrack) {
+      setLiked(isFavorite(currentTrack.videoId));
+      addToHistory(currentTrack);
+    }
+  }, [currentTrack?.videoId]);
+
+  const handleLike = () => {
+    if (!currentTrack) return;
+    
+    if (liked) {
+      removeFavorite(currentTrack.videoId);
+      toast.success('Removed from favorites');
+    } else {
+      addFavorite(currentTrack);
+      toast.success('Added to favorites');
+    }
+    setLiked(!liked);
+  };
+
+  const handleDownload = async () => {
+    if (!currentTrack) return;
+    
+    toast.info('Preparing download...');
+    const url = `https://yt.omada.cafe/api/v1/videos/${currentTrack.videoId}?local=true`;
+    
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      const audioFormat = data.adaptiveFormats?.find((f: any) => f.type?.startsWith('audio/'));
+      if (audioFormat?.url) {
+        const a = document.createElement('a');
+        a.href = audioFormat.url;
+        a.download = `${currentTrack.title}.mp3`;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast.success('Download started');
+      } else {
+        toast.error('Download not available');
+      }
+    } catch {
+      toast.error('Download failed');
+    }
+  };
 
   if (!currentTrack) {
     return (
@@ -63,39 +124,50 @@ export function Player() {
 
   return (
     <>
-      {/* Lyrics Panel */}
+      {/* Queue Panel */}
       <AnimatePresence>
-        {showLyrics && (
+        {showQueue && (
           <motion.div
             initial={{ opacity: 0, y: 100 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 100 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="fixed inset-x-0 bottom-24 z-40 mx-auto max-w-2xl px-4"
+            className="fixed bottom-24 right-4 z-40 w-80 max-h-96 glass rounded-2xl p-4 shadow-2xl border border-border overflow-hidden"
           >
-            <div className="glass rounded-2xl p-6 shadow-2xl border border-border">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-lg overflow-hidden">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-foreground">Up Next</h3>
+              <span className="text-xs text-muted-foreground">{queue.length} tracks</span>
+            </div>
+            <div className="overflow-y-auto max-h-72 space-y-2">
+              {queue.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">Queue is empty</p>
+              ) : (
+                queue.map((track, index) => (
+                  <div
+                    key={`${track.videoId}-${index}`}
+                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-accent cursor-pointer group"
+                    onClick={() => playTrack(track)}
+                  >
                     <img
-                      src={getThumbnail(currentTrack)}
-                      alt={currentTrack.title}
-                      className="w-full h-full object-cover"
+                      src={getThumbnail(track)}
+                      alt={track.title}
+                      className="w-10 h-10 rounded object-cover"
                     />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{track.title}</p>
+                      <p className="text-xs text-muted-foreground truncate">{track.author}</p>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeFromQueue(index);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-secondary rounded transition-all"
+                    >
+                      <span className="text-xs text-muted-foreground">✕</span>
+                    </button>
                   </div>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-foreground truncate">{currentTrack.title}</p>
-                    <p className="text-sm text-muted-foreground truncate">{currentTrack.author}</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => setShowLyrics(false)}
-                  className="p-2 hover:bg-accent rounded-full transition-colors"
-                >
-                  <X className="w-5 h-5 text-muted-foreground" />
-                </button>
-              </div>
-              <LyricsDisplay videoId={currentTrack.videoId} currentTime={currentTime} />
+                ))
+              )}
             </div>
           </motion.div>
         )}
@@ -142,7 +214,7 @@ export function Player() {
             </p>
           </div>
           <button 
-            onClick={() => setLiked(!liked)}
+            onClick={handleLike}
             className="p-2 hover:bg-accent rounded-full transition-colors"
           >
             <Heart className={cn(
@@ -155,8 +227,14 @@ export function Player() {
         {/* Player Controls */}
         <div className="flex-1 flex flex-col items-center gap-2 max-w-2xl">
           <div className="flex items-center gap-3">
-            <button className="p-2 hover:bg-accent rounded-full transition-colors">
-              <Shuffle className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+            <button 
+              onClick={toggleShuffle}
+              className={cn(
+                "p-2 rounded-full transition-colors",
+                shuffle ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-accent"
+              )}
+            >
+              <Shuffle className="w-4 h-4" />
             </button>
             <button 
               onClick={playPrevious}
@@ -180,8 +258,18 @@ export function Player() {
             >
               <SkipForward className="w-5 h-5 text-foreground fill-current" />
             </button>
-            <button className="p-2 hover:bg-accent rounded-full transition-colors">
-              <Repeat className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+            <button 
+              onClick={toggleRepeat}
+              className={cn(
+                "p-2 rounded-full transition-colors",
+                repeat !== 'off' ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-accent"
+              )}
+            >
+              {repeat === 'one' ? (
+                <Repeat1 className="w-4 h-4" />
+              ) : (
+                <Repeat className="w-4 h-4" />
+              )}
             </button>
           </div>
 
@@ -209,18 +297,29 @@ export function Player() {
           </div>
         </div>
 
-        {/* Volume, Lyrics & Queue */}
-        <div className="flex items-center gap-2 w-[200px] justify-end">
+        {/* Right Controls */}
+        <div className="flex items-center gap-2 w-[240px] justify-end">
           <button 
-            onClick={() => setShowLyrics(!showLyrics)}
+            onClick={onLyricsOpen}
+            className="p-2 hover:bg-accent rounded-full transition-colors"
+            title="Full-screen lyrics"
+          >
+            <Maximize2 className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+          </button>
+          <button 
+            onClick={handleDownload}
+            className="p-2 hover:bg-accent rounded-full transition-colors"
+            title="Download"
+          >
+            <Download className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+          </button>
+          <button 
+            onClick={() => setShowQueue(!showQueue)}
             className={cn(
-              "p-2 hover:bg-accent rounded-full transition-colors",
-              showLyrics && "bg-accent text-primary"
+              "p-2 rounded-full transition-colors",
+              showQueue ? "bg-accent text-primary" : "hover:bg-accent"
             )}
           >
-            <Mic2 className="w-4 h-4" />
-          </button>
-          <button className="p-2 hover:bg-accent rounded-full transition-colors">
             <ListMusic className="w-4 h-4 text-muted-foreground" />
           </button>
           <div className="flex items-center gap-2">
