@@ -15,7 +15,8 @@ interface AudioFormat {
 
 async function getAudioStreamUrl(videoId: string): Promise<string | null> {
   try {
-    const response = await fetch(`${API_BASE}/videos/${videoId}`);
+    // Use local=true to proxy streams through Invidious (bypasses CORS)
+    const response = await fetch(`${API_BASE}/videos/${videoId}?local=true`);
     if (!response.ok) throw new Error('Failed to fetch video info');
     
     const data = await response.json();
@@ -23,11 +24,9 @@ async function getAudioStreamUrl(videoId: string): Promise<string | null> {
     // Get adaptive formats (audio-only streams)
     const adaptiveFormats: AudioFormat[] = data.adaptiveFormats || [];
     
-    // Find the best audio-only format (prefer opus/webm, fallback to mp4a)
+    // Find audio-only formats
     const audioFormats = adaptiveFormats.filter(f => 
-      f.type?.startsWith('audio/') || 
-      f.container === 'webm' && !f.type?.includes('video') ||
-      f.container === 'm4a'
+      f.type?.startsWith('audio/')
     );
     
     // Sort by bitrate (highest first)
@@ -37,12 +36,12 @@ async function getAudioStreamUrl(videoId: string): Promise<string | null> {
       return bitrateB - bitrateA;
     });
     
-    // Return the best audio URL
+    // Return the best audio URL (already proxied via local=true)
     if (audioFormats.length > 0) {
       return audioFormats[0].url;
     }
     
-    // Fallback: use formatStreams if available
+    // Fallback: use formatStreams (contains both audio+video)
     const formatStreams = data.formatStreams || [];
     if (formatStreams.length > 0) {
       return formatStreams[0].url;
