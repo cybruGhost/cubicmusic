@@ -9,13 +9,21 @@ interface PlayerContextType {
   currentTime: number;
   duration: number;
   queue: Video[];
+  shuffle: boolean;
+  repeat: 'off' | 'one' | 'all';
+  history: Video[];
   playTrack: (track: Video) => void;
+  playAll: (tracks: Video[], startIndex?: number) => void;
   togglePlay: () => void;
   seek: (time: number) => void;
   setVolume: (volume: number) => void;
   addToQueue: (track: Video) => void;
   playNext: () => void;
   playPrevious: () => void;
+  toggleShuffle: () => void;
+  toggleRepeat: () => void;
+  clearQueue: () => void;
+  removeFromQueue: (index: number) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);

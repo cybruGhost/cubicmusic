@@ -15,33 +15,24 @@ interface AudioFormat {
 
 async function getAudioStreamUrl(videoId: string): Promise<string | null> {
   try {
-    // Use local=true to proxy streams through Invidious (bypasses CORS)
     const response = await fetch(`${API_BASE}/videos/${videoId}?local=true`);
     if (!response.ok) throw new Error('Failed to fetch video info');
     
     const data = await response.json();
     
-    // Get adaptive formats (audio-only streams)
     const adaptiveFormats: AudioFormat[] = data.adaptiveFormats || [];
+    const audioFormats = adaptiveFormats.filter(f => f.type?.startsWith('audio/'));
     
-    // Find audio-only formats
-    const audioFormats = adaptiveFormats.filter(f => 
-      f.type?.startsWith('audio/')
-    );
-    
-    // Sort by bitrate (highest first)
     audioFormats.sort((a, b) => {
       const bitrateA = parseInt(a.bitrate) || 0;
       const bitrateB = parseInt(b.bitrate) || 0;
       return bitrateB - bitrateA;
     });
     
-    // Return the best audio URL (already proxied via local=true)
     if (audioFormats.length > 0) {
       return audioFormats[0].url;
     }
     
-    // Fallback: use formatStreams (contains both audio+video)
     const formatStreams = data.formatStreams || [];
     if (formatStreams.length > 0) {
       return formatStreams[0].url;
@@ -54,22 +45,31 @@ async function getAudioStreamUrl(videoId: string): Promise<string | null> {
   }
 }
 
+interface ExtendedPlayerState extends PlayerState {
+  shuffle: boolean;
+  repeat: 'off' | 'one' | 'all';
+  history: Video[];
+}
+
 export function usePlayer() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const queueIndexRef = useRef<number>(-1);
   
-  const [state, setState] = useState<PlayerState>({
+  const [state, setState] = useState<ExtendedPlayerState>({
     currentTrack: null,
     isPlaying: false,
     volume: 70,
     currentTime: 0,
     duration: 0,
     queue: [],
+    shuffle: false,
+    repeat: 'off',
+    history: [],
   });
 
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  // Initialize audio element
   useEffect(() => {
     if (!audioRef.current) {
       audioRef.current = new Audio();
@@ -88,10 +88,37 @@ export function usePlayer() {
       });
       
       audioRef.current.addEventListener('ended', () => {
-        const currentQueue = stateRef.current.queue;
-        if (currentQueue.length > 0) {
-          const [next, ...rest] = currentQueue;
-          playTrackInternal(next, rest);
+        const { repeat, queue, shuffle } = stateRef.current;
+        
+        if (repeat === 'one') {
+          if (audioRef.current) {
+            audioRef.current.currentTime = 0;
+            audioRef.current.play().catch(console.error);
+          }
+          return;
+        }
+        
+        if (queue.length > 0) {
+          let nextIndex: number;
+          
+          if (shuffle) {
+            nextIndex = Math.floor(Math.random() * queue.length);
+          } else {
+            nextIndex = 0;
+          }
+          
+          const [next, ...rest] = queue;
+          if (shuffle && queue.length > 1) {
+            const shuffledQueue = [...queue];
+            const selectedTrack = shuffledQueue.splice(nextIndex, 1)[0];
+            playTrackInternal(selectedTrack, shuffledQueue);
+          } else {
+            playTrackInternal(next, rest);
+          }
+        } else if (repeat === 'all' && stateRef.current.history.length > 0) {
+          const historyQueue = [...stateRef.current.history];
+          const [first, ...rest] = historyQueue;
+          playTrackInternal(first, rest);
         } else {
           setState(s => ({ ...s, isPlaying: false }));
         }
@@ -125,6 +152,7 @@ export function usePlayer() {
       currentTrack: track, 
       isPlaying: false, 
       currentTime: 0,
+      history: s.currentTrack ? [...s.history.filter(h => h.videoId !== s.currentTrack!.videoId), s.currentTrack] : s.history,
       ...(newQueue !== undefined ? { queue: newQueue } : {})
     }));
     
@@ -146,6 +174,12 @@ export function usePlayer() {
 
   const playTrack = useCallback((track: Video) => {
     playTrackInternal(track);
+  }, [playTrackInternal]);
+
+  const playAll = useCallback((tracks: Video[], startIndex: number = 0) => {
+    if (tracks.length === 0) return;
+    const [first, ...rest] = tracks.slice(startIndex);
+    playTrackInternal(first, rest);
   }, [playTrackInternal]);
 
   const togglePlay = useCallback(() => {
@@ -177,29 +211,78 @@ export function usePlayer() {
   }, []);
 
   const playNext = useCallback(() => {
-    const currentQueue = stateRef.current.queue;
-    if (currentQueue.length > 0) {
-      const [next, ...rest] = currentQueue;
-      playTrackInternal(next, rest);
+    const { queue, shuffle } = stateRef.current;
+    
+    if (queue.length > 0) {
+      let nextIndex = 0;
+      
+      if (shuffle && queue.length > 1) {
+        nextIndex = Math.floor(Math.random() * queue.length);
+      }
+      
+      const newQueue = [...queue];
+      const nextTrack = newQueue.splice(nextIndex, 1)[0];
+      playTrackInternal(nextTrack, newQueue);
     }
   }, [playTrackInternal]);
 
   const playPrevious = useCallback(() => {
-    if (audioRef.current && stateRef.current.currentTime > 3) {
-      audioRef.current.currentTime = 0;
-      setState(s => ({ ...s, currentTime: 0 }));
+    const { history, currentTime } = stateRef.current;
+    
+    if (currentTime > 3) {
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        setState(s => ({ ...s, currentTime: 0 }));
+      }
+      return;
     }
+    
+    if (history.length > 0) {
+      const newHistory = [...history];
+      const prevTrack = newHistory.pop()!;
+      setState(s => ({ ...s, history: newHistory }));
+      playTrackInternal(prevTrack);
+    }
+  }, [playTrackInternal]);
+
+  const toggleShuffle = useCallback(() => {
+    setState(s => ({ ...s, shuffle: !s.shuffle }));
+  }, []);
+
+  const toggleRepeat = useCallback(() => {
+    setState(s => {
+      const modes: ('off' | 'one' | 'all')[] = ['off', 'one', 'all'];
+      const currentIndex = modes.indexOf(s.repeat);
+      const nextIndex = (currentIndex + 1) % modes.length;
+      return { ...s, repeat: modes[nextIndex] };
+    });
+  }, []);
+
+  const clearQueue = useCallback(() => {
+    setState(s => ({ ...s, queue: [] }));
+  }, []);
+
+  const removeFromQueue = useCallback((index: number) => {
+    setState(s => ({
+      ...s,
+      queue: s.queue.filter((_, i) => i !== index)
+    }));
   }, []);
 
   return {
     ...state,
     volume: state.volume / 100,
     playTrack,
+    playAll,
     togglePlay,
     seek,
     setVolume,
     addToQueue,
     playNext,
     playPrevious,
+    toggleShuffle,
+    toggleRepeat,
+    clearQueue,
+    removeFromQueue,
   };
 }

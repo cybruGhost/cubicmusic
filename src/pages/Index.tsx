@@ -8,10 +8,15 @@ import { MoodChips } from '@/components/MoodChips';
 import { PlaylistView } from '@/components/playlists/PlaylistView';
 import { PlaylistCard } from '@/components/playlists/PlaylistCard';
 import { CreatePlaylistDialog } from '@/components/playlists/CreatePlaylistDialog';
+import { FullscreenLyrics } from '@/components/lyrics/FullscreenLyrics';
+import { LibraryView } from '@/components/LibraryView';
+import { ExploreView } from '@/components/ExploreView';
 import { useSearch } from '@/hooks/useSearch';
 import { getPlaylists } from '@/lib/playlists';
+import { getPreferredArtists, hasSelectedArtists } from '@/lib/storage';
 import { UserPlaylist } from '@/types/music';
 import { Plus } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function Index() {
   const [activeTab, setActiveTab] = useState('home');
@@ -20,6 +25,7 @@ export default function Index() {
   const [initialized, setInitialized] = useState(false);
   const [selectedPlaylist, setSelectedPlaylist] = useState<UserPlaylist | null>(null);
   const [playlists, setPlaylists] = useState<UserPlaylist[]>([]);
+  const [showLyrics, setShowLyrics] = useState(false);
   const { videos, loading, search } = useSearch();
 
   const loadPlaylists = useCallback(() => {
@@ -32,7 +38,17 @@ export default function Index() {
 
   useEffect(() => {
     if (!initialized) {
-      search('nf');
+      // Use preferred artists if available
+      const preferredArtists = getPreferredArtists();
+      if (preferredArtists.length > 0) {
+        const randomArtist = preferredArtists[Math.floor(Math.random() * preferredArtists.length)];
+        search(randomArtist);
+      } else {
+        // Random popular artists for variety
+        const defaultArtists = ['Taylor Swift', 'Drake', 'The Weeknd', 'Ed Sheeran', 'Dua Lipa', 'Bad Bunny'];
+        const randomArtist = defaultArtists[Math.floor(Math.random() * defaultArtists.length)];
+        search(randomArtist);
+      }
       setInitialized(true);
     }
   }, [initialized, search]);
@@ -44,7 +60,8 @@ export default function Index() {
       search(query);
       setActiveMood(undefined);
     } else {
-      search('nf');
+      const defaultArtists = ['Taylor Swift', 'Drake', 'The Weeknd'];
+      search(defaultArtists[Math.floor(Math.random() * defaultArtists.length)]);
     }
   }, [search]);
 
@@ -65,6 +82,10 @@ export default function Index() {
     setActiveTab('library');
   };
 
+  const handleSignInClick = () => {
+    toast.info('Sign in coming soon!');
+  };
+
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
       <div className="flex flex-1 overflow-hidden">
@@ -73,6 +94,7 @@ export default function Index() {
           activeTab={activeTab} 
           onTabChange={handleTabChange}
           onPlaylistSelect={handlePlaylistSelect}
+          onSignInClick={handleSignInClick}
         />
 
         {/* Main Content */}
@@ -94,43 +116,15 @@ export default function Index() {
                 onUpdate={loadPlaylists}
               />
             ) : activeTab === 'library' ? (
-              /* Library View */
-              <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <h1 className="text-2xl font-bold text-foreground">Your Library</h1>
-                  <CreatePlaylistDialog onPlaylistCreated={loadPlaylists}>
-                    <button className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm font-medium">
-                      <Plus className="w-4 h-4" />
-                      New Playlist
-                    </button>
-                  </CreatePlaylistDialog>
-                </div>
-                
-                {playlists.length === 0 ? (
-                  <div className="text-center py-16">
-                    <p className="text-muted-foreground mb-4">No playlists yet</p>
-                    <CreatePlaylistDialog onPlaylistCreated={loadPlaylists}>
-                      <button className="px-6 py-3 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition-colors font-medium">
-                        Create Your First Playlist
-                      </button>
-                    </CreatePlaylistDialog>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                    {playlists.map((playlist, index) => (
-                      <PlaylistCard
-                        key={playlist.id}
-                        playlist={playlist}
-                        index={index}
-                        onSelect={setSelectedPlaylist}
-                        onDelete={loadPlaylists}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
+              <LibraryView 
+                playlists={playlists}
+                onPlaylistSelect={setSelectedPlaylist}
+                onPlaylistsUpdate={loadPlaylists}
+              />
+            ) : activeTab === 'explore' ? (
+              <ExploreView />
             ) : (
-              /* Home/Explore View */
+              /* Home View */
               <>
                 {!searchQuery && (
                   <>
@@ -172,8 +166,11 @@ export default function Index() {
         </main>
       </div>
 
+      {/* Fullscreen Lyrics */}
+      <FullscreenLyrics isOpen={showLyrics} onClose={() => setShowLyrics(false)} />
+
       {/* Player Bar */}
-      <Player />
+      <Player onLyricsOpen={() => setShowLyrics(true)} />
     </div>
   );
 }
