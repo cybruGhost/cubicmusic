@@ -1,18 +1,62 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Video, PlayerState } from '@/types/music';
 
-declare global {
-  interface Window {
-    YT: any;
-    onYouTubeIframeAPIReady: () => void;
+const API_BASE = 'https://yt.omada.cafe/api/v1';
+
+interface AudioFormat {
+  url: string;
+  itag: number;
+  type: string;
+  bitrate: string;
+  container: string;
+  audioQuality?: string;
+  audioSampleRate?: number;
+}
+
+async function getAudioStreamUrl(videoId: string): Promise<string | null> {
+  try {
+    const response = await fetch(`${API_BASE}/videos/${videoId}`);
+    if (!response.ok) throw new Error('Failed to fetch video info');
+    
+    const data = await response.json();
+    
+    // Get adaptive formats (audio-only streams)
+    const adaptiveFormats: AudioFormat[] = data.adaptiveFormats || [];
+    
+    // Find the best audio-only format (prefer opus/webm, fallback to mp4a)
+    const audioFormats = adaptiveFormats.filter(f => 
+      f.type?.startsWith('audio/') || 
+      f.container === 'webm' && !f.type?.includes('video') ||
+      f.container === 'm4a'
+    );
+    
+    // Sort by bitrate (highest first)
+    audioFormats.sort((a, b) => {
+      const bitrateA = parseInt(a.bitrate) || 0;
+      const bitrateB = parseInt(b.bitrate) || 0;
+      return bitrateB - bitrateA;
+    });
+    
+    // Return the best audio URL
+    if (audioFormats.length > 0) {
+      return audioFormats[0].url;
+    }
+    
+    // Fallback: use formatStreams if available
+    const formatStreams = data.formatStreams || [];
+    if (formatStreams.length > 0) {
+      return formatStreams[0].url;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error fetching audio stream:', error);
+    return null;
   }
 }
 
 export function usePlayer() {
-  const playerRef = useRef<any>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const isAPIReadyRef = useRef(false);
-  const pendingTrackRef = useRef<Video | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   
   const [state, setState] = useState<PlayerState>({
     currentTrack: null,
@@ -26,148 +70,105 @@ export function usePlayer() {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  // Load YouTube IFrame API
+  // Initialize audio element
   useEffect(() => {
-    if (window.YT && window.YT.Player) {
-      isAPIReadyRef.current = true;
-      initPlayer();
-      return;
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.volume = state.volume / 100;
+      
+      audioRef.current.addEventListener('loadedmetadata', () => {
+        setState(s => ({ ...s, duration: audioRef.current?.duration || 0 }));
+      });
+      
+      audioRef.current.addEventListener('timeupdate', () => {
+        setState(s => ({ 
+          ...s, 
+          currentTime: audioRef.current?.currentTime || 0,
+          duration: audioRef.current?.duration || 0
+        }));
+      });
+      
+      audioRef.current.addEventListener('ended', () => {
+        const currentQueue = stateRef.current.queue;
+        if (currentQueue.length > 0) {
+          const [next, ...rest] = currentQueue;
+          playTrackInternal(next, rest);
+        } else {
+          setState(s => ({ ...s, isPlaying: false }));
+        }
+      });
+      
+      audioRef.current.addEventListener('play', () => {
+        setState(s => ({ ...s, isPlaying: true }));
+      });
+      
+      audioRef.current.addEventListener('pause', () => {
+        setState(s => ({ ...s, isPlaying: false }));
+      });
+      
+      audioRef.current.addEventListener('error', (e) => {
+        console.error('Audio playback error:', e);
+        setState(s => ({ ...s, isPlaying: false }));
+      });
     }
 
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    const firstScriptTag = document.getElementsByTagName('script')[0];
-    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-
-    window.onYouTubeIframeAPIReady = () => {
-      isAPIReadyRef.current = true;
-      initPlayer();
-    };
-
     return () => {
-      window.onYouTubeIframeAPIReady = () => {};
-    };
-  }, []);
-
-  // Create hidden container for iframe
-  useEffect(() => {
-    if (!containerRef.current) {
-      const container = document.createElement('div');
-      container.id = 'youtube-player-container';
-      container.style.cssText = 'position:absolute;top:-9999px;left:-9999px;width:1px;height:1px;overflow:hidden;';
-      document.body.appendChild(container);
-      containerRef.current = container;
-
-      const playerDiv = document.createElement('div');
-      playerDiv.id = 'youtube-player';
-      container.appendChild(playerDiv);
-    }
-
-    return () => {
-      if (containerRef.current) {
-        containerRef.current.remove();
-        containerRef.current = null;
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
       }
     };
   }, []);
 
-  const initPlayer = useCallback(() => {
-    if (playerRef.current || !document.getElementById('youtube-player')) return;
-
-    playerRef.current = new window.YT.Player('youtube-player', {
-      height: '1',
-      width: '1',
-      playerVars: {
-        autoplay: 0,
-        controls: 0,
-        disablekb: 1,
-        fs: 0,
-        iv_load_policy: 3,
-        modestbranding: 1,
-        rel: 0,
-      },
-      events: {
-        onReady: () => {
-          playerRef.current.setVolume(stateRef.current.volume);
-          // Play pending track if any
-          if (pendingTrackRef.current) {
-            const track = pendingTrackRef.current;
-            pendingTrackRef.current = null;
-            playerRef.current.loadVideoById(track.videoId);
-            setState(s => ({ ...s, currentTrack: track, isPlaying: true, currentTime: 0 }));
-          }
-        },
-        onStateChange: (event: any) => {
-          const playerState = event.data;
-          // YT.PlayerState: ENDED=0, PLAYING=1, PAUSED=2, BUFFERING=3
-          if (playerState === 0) {
-            // Video ended - play next
-            const currentQueue = stateRef.current.queue;
-            if (currentQueue.length > 0) {
-              const [next, ...rest] = currentQueue;
-              playerRef.current.loadVideoById(next.videoId);
-              setState(s => ({ ...s, currentTrack: next, queue: rest, isPlaying: true, currentTime: 0 }));
-            } else {
-              setState(s => ({ ...s, isPlaying: false }));
-            }
-          } else if (playerState === 1) {
-            const duration = playerRef.current?.getDuration?.() || 0;
-            setState(s => ({ ...s, isPlaying: true, duration }));
-          } else if (playerState === 2) {
-            setState(s => ({ ...s, isPlaying: false }));
-          }
-        },
-      },
-    });
-  }, []);
-
-  // Update current time periodically
-  useEffect(() => {
-    if (!state.isPlaying) return;
-
-    const interval = setInterval(() => {
-      if (playerRef.current?.getCurrentTime) {
-        const currentTime = playerRef.current.getCurrentTime() || 0;
-        const duration = playerRef.current.getDuration() || 0;
-        setState(s => ({ ...s, currentTime, duration }));
+  const playTrackInternal = useCallback(async (track: Video, newQueue?: Video[]) => {
+    setState(s => ({ 
+      ...s, 
+      currentTrack: track, 
+      isPlaying: false, 
+      currentTime: 0,
+      ...(newQueue !== undefined ? { queue: newQueue } : {})
+    }));
+    
+    const audioUrl = await getAudioStreamUrl(track.videoId);
+    
+    if (audioUrl && audioRef.current) {
+      audioRef.current.src = audioUrl;
+      audioRef.current.load();
+      
+      try {
+        await audioRef.current.play();
+      } catch (err) {
+        console.error('Playback failed:', err);
       }
-    }, 500);
-
-    return () => clearInterval(interval);
-  }, [state.isPlaying]);
+    } else {
+      console.error('No audio stream found for:', track.videoId);
+    }
+  }, []);
 
   const playTrack = useCallback((track: Video) => {
-    if (!playerRef.current?.loadVideoById) {
-      // Store pending track to play when ready
-      pendingTrackRef.current = track;
-      setState(s => ({ ...s, currentTrack: track, isPlaying: false, currentTime: 0 }));
-      return;
-    }
-
-    playerRef.current.loadVideoById(track.videoId);
-    setState(s => ({ ...s, currentTrack: track, isPlaying: true, currentTime: 0 }));
-  }, []);
+    playTrackInternal(track);
+  }, [playTrackInternal]);
 
   const togglePlay = useCallback(() => {
-    if (!playerRef.current || !stateRef.current.currentTrack) return;
+    if (!audioRef.current || !stateRef.current.currentTrack) return;
 
     if (stateRef.current.isPlaying) {
-      playerRef.current.pauseVideo();
+      audioRef.current.pause();
     } else {
-      playerRef.current.playVideo();
+      audioRef.current.play().catch(console.error);
     }
   }, []);
 
   const seek = useCallback((time: number) => {
-    if (!playerRef.current?.seekTo) return;
-    playerRef.current.seekTo(time, true);
+    if (!audioRef.current) return;
+    audioRef.current.currentTime = time;
     setState(s => ({ ...s, currentTime: time }));
   }, []);
 
   const setVolume = useCallback((volume: number) => {
     const vol = Math.round(volume * 100);
-    if (playerRef.current?.setVolume) {
-      playerRef.current.setVolume(vol);
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
     }
     setState(s => ({ ...s, volume: vol }));
   }, []);
@@ -178,16 +179,15 @@ export function usePlayer() {
 
   const playNext = useCallback(() => {
     const currentQueue = stateRef.current.queue;
-    if (currentQueue.length > 0 && playerRef.current?.loadVideoById) {
+    if (currentQueue.length > 0) {
       const [next, ...rest] = currentQueue;
-      playerRef.current.loadVideoById(next.videoId);
-      setState(s => ({ ...s, currentTrack: next, queue: rest, isPlaying: true, currentTime: 0 }));
+      playTrackInternal(next, rest);
     }
-  }, []);
+  }, [playTrackInternal]);
 
   const playPrevious = useCallback(() => {
-    if (playerRef.current?.seekTo && stateRef.current.currentTime > 3) {
-      playerRef.current.seekTo(0, true);
+    if (audioRef.current && stateRef.current.currentTime > 3) {
+      audioRef.current.currentTime = 0;
       setState(s => ({ ...s, currentTime: 0 }));
     }
   }, []);
