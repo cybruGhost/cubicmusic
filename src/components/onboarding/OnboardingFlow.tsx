@@ -70,12 +70,10 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     }
 
     setIsSearching(true);
-    console.log('Starting search for:', query);
 
     try {
-      // Search from API - add "artist" to query to get better results
-      const searchUrl = `https://yt.omada.cafe/api/v1/search?q=${encodeURIComponent(query)}%20artist`;
-      console.log('Fetching from:', searchUrl);
+      // Search from API - use the query directly without "artist" suffix
+      const searchUrl = `https://yt.omada.cafe/api/v1/search?q=${encodeURIComponent(query)}`;
       
       const response = await fetch(searchUrl);
 
@@ -84,76 +82,141 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       }
 
       const data = await response.json();
-      console.log('API Response:', data);
 
       const artists: Artist[] = [];
       const seen = new Set<string>();
 
-      // Parse API response - SIMPLIFIED: just extract author from any item
+      // First add local matches
+      const localMatches = SUGGESTED_ARTISTS.filter(artist =>
+        artist.name.toLowerCase().includes(query.toLowerCase())
+      );
+      localMatches.forEach(artist => {
+        if (!seen.has(artist.name)) {
+          seen.add(artist.name);
+          artists.push(artist);
+        }
+      });
+
+      // Parse API response
       if (data && Array.isArray(data.content)) {
-        console.log('Processing', data.content.length, 'items');
-        
-        data.content.forEach((item: any, index: number) => {
-          console.log(`Item ${index}:`, item.type, 'author:', item.author);
-          
-          // SIMPLE: If item has author field, add it
-          if (item.author && typeof item.author === 'string' && item.author.trim()) {
+        data.content.forEach((item: any) => {
+          // Check for channel type with author
+          if (item.type === 'channel' && item.author && item.author.trim()) {
             const artistName = item.author.trim();
-            
-            if (!seen.has(artistName) && artistName.length > 1) {
+            if (!seen.has(artistName)) {
               seen.add(artistName);
-              
               artists.push({
                 name: artistName,
                 genre: 'Artist',
-                id: item.authorId || item.id || `artist-${artistName}`,
-                thumbnail: item.authorThumbnails?.[0]?.url || item.thumbnails?.[0]?.url,
+                id: item.authorId,
+                thumbnail: item.authorThumbnails?.[0]?.url,
                 verified: item.authorVerified || false
               });
-              
-              console.log('Added artist:', artistName);
             }
           }
           
-          // Also check for artist in title for videos
+          // Check for video type with author
+          if (item.type === 'video' && item.author && item.author.trim()) {
+            const artistName = item.author.trim();
+            if (!seen.has(artistName)) {
+              seen.add(artistName);
+              artists.push({
+                name: artistName,
+                genre: 'Artist',
+                id: item.authorId,
+                thumbnail: item.videoThumbnails?.[0]?.url,
+                verified: item.authorVerified || false
+              });
+            }
+          }
+          
+          // Extract artist from video titles for videos without proper author field
           if (item.type === 'video' && item.title) {
-            // Simple pattern: "Artist - Song" or "Artist: Song"
-            const titleMatch = item.title.match(/^([^\-:]+)[\-:]/);
-            if (titleMatch) {
-              const potentialArtist = titleMatch[1].trim();
-              if (potentialArtist && !seen.has(potentialArtist) && potentialArtist.length > 1) {
+            const title = item.title;
+            
+            // Pattern 1: "NF - Song Title"
+            const dashMatch = title.match(/^([^\-]+)\s*-\s*/);
+            if (dashMatch && dashMatch[1]) {
+              const potentialArtist = dashMatch[1].trim();
+              if (potentialArtist && !seen.has(potentialArtist)) {
                 seen.add(potentialArtist);
-                
                 artists.push({
                   name: potentialArtist,
                   genre: 'Artist',
-                  id: item.authorId || item.id || `title-${potentialArtist}`,
+                  id: item.authorId,
                   thumbnail: item.videoThumbnails?.[0]?.url,
                   verified: item.authorVerified || false
                 });
-                
-                console.log('Added artist from title:', potentialArtist);
+              }
+            }
+            
+            // Pattern 2: "NF: Song Title"
+            const colonMatch = title.match(/^([^:]+)\s*:\s*/);
+            if (colonMatch && colonMatch[1]) {
+              const potentialArtist = colonMatch[1].trim();
+              if (potentialArtist && !seen.has(potentialArtist)) {
+                seen.add(potentialArtist);
+                artists.push({
+                  name: potentialArtist,
+                  genre: 'Artist',
+                  id: item.authorId,
+                  thumbnail: item.videoThumbnails?.[0]?.url,
+                  verified: item.authorVerified || false
+                });
+              }
+            }
+            
+            // Pattern 3: Look for the search query in the title
+            const queryLower = query.toLowerCase();
+            const titleLower = title.toLowerCase();
+            if (titleLower.includes(queryLower)) {
+              // Try to extract the part before common separators
+              const separators = [' - ', ': ', ' | ', '「', '"', "'", '('];
+              for (const sep of separators) {
+                const sepIndex = title.indexOf(sep);
+                if (sepIndex > 0) {
+                  const potentialArtist = title.substring(0, sepIndex).trim();
+                  if (potentialArtist && !seen.has(potentialArtist)) {
+                    seen.add(potentialArtist);
+                    artists.push({
+                      name: potentialArtist,
+                      genre: 'Artist',
+                      id: item.authorId,
+                      thumbnail: item.videoThumbnails?.[0]?.url,
+                      verified: item.authorVerified || false
+                    });
+                    break;
+                  }
+                }
               }
             }
           }
         });
       }
 
-      console.log('Total artists found:', artists.length);
-      console.log('Artists list:', artists);
+      // Filter out artists that don't match the search query at all
+      const queryLower = query.toLowerCase();
+      const filteredArtists = artists.filter(artist => 
+        artist.name.toLowerCase().includes(queryLower) ||
+        queryLower.includes(artist.name.toLowerCase()) ||
+        artist.name.toLowerCase().split(' ').some(word => queryLower.includes(word)) ||
+        queryLower.split(' ').some(word => artist.name.toLowerCase().includes(word))
+      );
 
-      // Sort by verification status (verified first), then by name
-      const sortedArtists = artists
+      // Sort by: exact match first, then verification, then alphabetical
+      const sortedArtists = filteredArtists
         .sort((a, b) => {
-          // Verified first
+          const aExact = a.name.toLowerCase() === queryLower ? 0 : 1;
+          const bExact = b.name.toLowerCase() === queryLower ? 0 : 1;
+          if (aExact !== bExact) return aExact - bExact;
+          
           if (a.verified && !b.verified) return -1;
           if (!a.verified && b.verified) return 1;
-          // Then alphabetical
+          
           return a.name.localeCompare(b.name);
         })
-        .slice(0, 15); // Limit results
+        .slice(0, 20);
 
-      console.log('Sorted artists:', sortedArtists);
       setSearchResults(sortedArtists);
       
     } catch (error) {
@@ -162,24 +225,20 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       const fallbackResults = SUGGESTED_ARTISTS.filter(artist =>
         artist.name.toLowerCase().includes(query.toLowerCase())
       );
-      console.log('Fallback results:', fallbackResults);
       setSearchResults(fallbackResults);
     } finally {
       setIsSearching(false);
-      console.log('Search complete, results:', searchResults.length);
     }
   }, []);
 
   useEffect(() => {
     if (debouncedSearch.trim()) {
-      console.log('Debounced search triggered for:', debouncedSearch);
       searchArtists(debouncedSearch);
     } else {
-      console.log('Clearing search results');
       setSearchResults([]);
       setIsSearching(false);
     }
-  }, [debouncedSearch]);
+  }, [debouncedSearch, searchArtists]);
 
   const handleNameSubmit = () => {
     if (name.trim()) {
@@ -315,7 +374,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
                     type="text"
-                    placeholder="Search for artists (e.g., Lana, Lauren, NF)..."
+                    placeholder="Search for artists (e.g., NF, Lana, Lauren)..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10 pr-8 py-4 bg-secondary/50 border-border/50 rounded-lg"
