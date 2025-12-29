@@ -43,69 +43,56 @@
 
 
 /* Add to your global.css or component styles */
-/* Wavy progress bar effects */
-.wavy-progress-bg {
+/* Add to your globals.css */
+
+/* Smooth wave animation */
+@keyframes wave-flow {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Water-like wave effect */
+.water-wave {
+  position: relative;
+  overflow: hidden;
+}
+
+.water-wave::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(255, 255, 255, 0.05) 25%,
-    rgba(255, 255, 255, 0.1) 50%,
-    rgba(255, 255, 255, 0.05) 75%,
+    rgba(255, 255, 255, 0.1) 25%,
+    rgba(255, 255, 255, 0.3) 50%,
+    rgba(255, 255, 255, 0.1) 75%,
     transparent 100%
   );
-  background-size: 200% 100%;
-  animation: wave-bg 3s linear infinite;
+  animation: wave-flow 2s linear infinite;
+  pointer-events: none;
 }
 
-.wavy-progress-fill {
+/* Progress bar wave overlay */
+.progress-wave {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 100%;
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(255, 255, 255, 0.2) 25%,
-    rgba(255, 255, 255, 0.4) 50%,
-    rgba(255, 255, 255, 0.2) 75%,
+    rgba(255, 255, 255, 0.15) 50%,
     transparent 100%
   );
-  background-size: 200% 100%;
-  animation: wave-fill 1.5s linear infinite;
-}
-
-.wavy-overlay {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.3) 25%,
-    rgba(255, 255, 255, 0.6) 50%,
-    rgba(255, 255, 255, 0.3) 75%,
-    transparent 100%
-  );
-  animation: wave 2s linear infinite;
-  background-size: 200% 100%;
-}
-
-@keyframes wave-bg {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-@keyframes wave-fill {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-@keyframes wave {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
+  animation: wave-flow 1.5s linear infinite;
+  opacity: 0.3;
 }
