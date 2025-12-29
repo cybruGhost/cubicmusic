@@ -210,6 +210,10 @@ export function usePlayer() {
     setState(s => ({ ...s, queue: [...s.queue, track] }));
   }, []);
 
+  const addToQueueMultiple = useCallback((tracks: Video[]) => {
+    setState(s => ({ ...s, queue: [...s.queue, ...tracks] }));
+  }, []);
+
   const playNext = useCallback(() => {
     const { queue, shuffle } = stateRef.current;
     
@@ -269,6 +273,60 @@ export function usePlayer() {
     }));
   }, []);
 
+  const moveQueueItem = useCallback((fromIndex: number, toIndex: number) => {
+    setState(s => {
+      const newQueue = [...s.queue];
+      const [movedItem] = newQueue.splice(fromIndex, 1);
+      newQueue.splice(toIndex, 0, movedItem);
+      return { ...s, queue: newQueue };
+    });
+  }, []);
+
+  const getNextTrack = useCallback((): Video | null => {
+    const { queue, shuffle, currentTrack } = stateRef.current;
+    
+    if (queue.length === 0) return null;
+    
+    if (shuffle) {
+      const availableTracks = queue.filter(track => 
+        track.videoId !== currentTrack?.videoId
+      );
+      if (availableTracks.length === 0) return queue[0];
+      return availableTracks[Math.floor(Math.random() * availableTracks.length)];
+    }
+    
+    // Get next track in order
+    if (currentTrack) {
+      const currentIndex = queue.findIndex(
+        track => track.videoId === currentTrack.videoId
+      );
+      if (currentIndex !== -1 && currentIndex < queue.length - 1) {
+        return queue[currentIndex + 1];
+      }
+    }
+    
+    return queue[0] || null;
+  }, []);
+
+  const getPreviousTrack = useCallback((): Video | null => {
+    const { history } = stateRef.current;
+    if (history.length === 0) return null;
+    return history[history.length - 1];
+  }, []);
+
+  const skipToIndex = useCallback((index: number) => {
+    const { queue } = stateRef.current;
+    if (index >= 0 && index < queue.length) {
+      const newQueue = [...queue];
+      const [selectedTrack] = newQueue.splice(index, 1);
+      playTrackInternal(selectedTrack, newQueue);
+    }
+  }, [playTrackInternal]);
+
+  const setQueue = useCallback((tracks: Video[]) => {
+    setState(s => ({ ...s, queue: tracks }));
+  }, []);
+
   return {
     ...state,
     volume: state.volume / 100,
@@ -278,11 +336,17 @@ export function usePlayer() {
     seek,
     setVolume,
     addToQueue,
+    addToQueueMultiple,
     playNext,
     playPrevious,
     toggleShuffle,
     toggleRepeat,
     clearQueue,
     removeFromQueue,
+    moveQueueItem,
+    getNextTrack,
+    getPreviousTrack,
+    skipToIndex,
+    setQueue,
   };
 }
