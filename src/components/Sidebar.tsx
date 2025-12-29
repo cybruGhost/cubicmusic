@@ -23,10 +23,12 @@ interface SidebarProps {
   onSettingsClick?: () => void;
 }
 
+// Add 'radio' to navigation items
 const navItems = [
   { id: 'home', icon: Home, label: 'Home' },
   { id: 'explore', icon: Compass, label: 'Explore' },
   { id: 'library', icon: Library, label: 'Library' },
+  { id: 'radio', icon: Radio, label: 'Radio' }, // Added radio tab
 ];
 
 export function Sidebar({ activeTab, onTabChange, onSignInClick, onSettingsClick }: SidebarProps) {
@@ -120,6 +122,7 @@ export function Sidebar({ activeTab, onTabChange, onSignInClick, onSettingsClick
               <span className="text-sm text-foreground">Discover</span>
             </button>
             <button 
+              onClick={() => onTabChange('radio')} // Connect to radio tab
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent transition-all group"
             >
               <Radio className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
