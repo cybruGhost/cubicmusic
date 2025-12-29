@@ -70,17 +70,14 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     }
 
     setIsSearching(true);
+    console.log('Starting search for:', query);
 
     try {
-      // First check local matches
-      const localMatches = SUGGESTED_ARTISTS.filter(artist =>
-        artist.name.toLowerCase().includes(query.toLowerCase())
-      );
-
-      // Search from API
-      const response = await fetch(
-        `https://yt.omada.cafe/api/v1/search?q=${encodeURIComponent(query)}`
-      );
+      // Search from API - add "artist" to query to get better results
+      const searchUrl = `https://yt.omada.cafe/api/v1/search?q=${encodeURIComponent(query)}%20artist`;
+      console.log('Fetching from:', searchUrl);
+      
+      const response = await fetch(searchUrl);
 
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`);
@@ -92,84 +89,58 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       const artists: Artist[] = [];
       const seen = new Set<string>();
 
-      // Add local matches first
-      localMatches.forEach(artist => {
-        if (!seen.has(artist.name)) {
-          seen.add(artist.name);
-          artists.push(artist);
-        }
-      });
-
-      // Parse API response - extract ALL items with author field
+      // Parse API response - SIMPLIFIED: just extract author from any item
       if (data && Array.isArray(data.content)) {
-        data.content.forEach((item: any) => {
-          // Check if item has an author field
-          if (item.author) {
+        console.log('Processing', data.content.length, 'items');
+        
+        data.content.forEach((item: any, index: number) => {
+          console.log(`Item ${index}:`, item.type, 'author:', item.author);
+          
+          // SIMPLE: If item has author field, add it
+          if (item.author && typeof item.author === 'string' && item.author.trim()) {
             const artistName = item.author.trim();
             
-            // Skip if we've already seen this artist
-            if (!artistName || seen.has(artistName)) {
-              return;
+            if (!seen.has(artistName) && artistName.length > 1) {
+              seen.add(artistName);
+              
+              artists.push({
+                name: artistName,
+                genre: 'Artist',
+                id: item.authorId || item.id || `artist-${artistName}`,
+                thumbnail: item.authorThumbnails?.[0]?.url || item.thumbnails?.[0]?.url,
+                verified: item.authorVerified || false
+              });
+              
+              console.log('Added artist:', artistName);
             }
-
-            seen.add(artistName);
-            
-            // Determine artist ID
-            let artistId = item.authorId;
-            // If no authorId but it's a video/channel, use browseId or videoId
-            if (!artistId) {
-              artistId = item.browseId || item.videoId || item.channelId;
-            }
-            
-            // Determine thumbnail
-            let thumbnail = item.authorThumbnails?.[0]?.url || 
-                           item.videoThumbnails?.[0]?.url ||
-                           item.thumbnails?.[0]?.url;
-            
-            // Determine if verified
-            const verified = item.authorVerified || false;
-            
-            artists.push({
-              name: artistName,
-              genre: 'Artist',
-              id: artistId,
-              thumbnail: thumbnail,
-              verified: verified
-            });
           }
-        });
-
-        // Also try to extract artist names from video titles
-        data.content.forEach((item: any) => {
-          if (item.title && item.type === 'video') {
-            // Common patterns: "Artist - Song Title", "Artist: Song Title", "Artist 'Song Title'"
-            const patterns = [
-              /^([^\-]+)\s*-\s*/,  // "Artist - "
-              /^([^:]+)\s*:\s*/,   // "Artist: "
-              /^([^']+)\s*'/,      // "Artist '"
-              /^([^\(]+)\s*\(/,    // "Artist ("
-            ];
-            
-            for (const pattern of patterns) {
-              const match = item.title.match(pattern);
-              if (match && match[1]) {
-                const potentialArtist = match[1].trim();
-                if (potentialArtist && !seen.has(potentialArtist)) {
-                  seen.add(potentialArtist);
-                  artists.push({
-                    name: potentialArtist,
-                    genre: 'Artist',
-                    id: item.authorId || item.videoId,
-                    thumbnail: item.videoThumbnails?.[0]?.url,
-                    verified: item.authorVerified || false
-                  });
-                  break;
-                }
+          
+          // Also check for artist in title for videos
+          if (item.type === 'video' && item.title) {
+            // Simple pattern: "Artist - Song" or "Artist: Song"
+            const titleMatch = item.title.match(/^([^\-:]+)[\-:]/);
+            if (titleMatch) {
+              const potentialArtist = titleMatch[1].trim();
+              if (potentialArtist && !seen.has(potentialArtist) && potentialArtist.length > 1) {
+                seen.add(potentialArtist);
+                
+                artists.push({
+                  name: potentialArtist,
+                  genre: 'Artist',
+                  id: item.authorId || item.id || `title-${potentialArtist}`,
+                  thumbnail: item.videoThumbnails?.[0]?.url,
+                  verified: item.authorVerified || false
+                });
+                
+                console.log('Added artist from title:', potentialArtist);
               }
             }
           }
         });
       }
+
+      console.log('Total artists found:', artists.length);
+      console.log('Artists list:', artists);
 
       // Sort by verification status (verified first), then by name
       const sortedArtists = artists
@@ -182,7 +153,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         })
         .slice(0, 15); // Limit results
 
-      console.log('Final artists list:', sortedArtists);
+      console.log('Sorted artists:', sortedArtists);
       setSearchResults(sortedArtists);
       
     } catch (error) {
@@ -191,20 +162,24 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       const fallbackResults = SUGGESTED_ARTISTS.filter(artist =>
         artist.name.toLowerCase().includes(query.toLowerCase())
       );
+      console.log('Fallback results:', fallbackResults);
       setSearchResults(fallbackResults);
     } finally {
       setIsSearching(false);
+      console.log('Search complete, results:', searchResults.length);
     }
   }, []);
 
   useEffect(() => {
     if (debouncedSearch.trim()) {
+      console.log('Debounced search triggered for:', debouncedSearch);
       searchArtists(debouncedSearch);
     } else {
+      console.log('Clearing search results');
       setSearchResults([]);
       setIsSearching(false);
     }
-  }, [debouncedSearch, searchArtists]);
+  }, [debouncedSearch]);
 
   const handleNameSubmit = () => {
     if (name.trim()) {
