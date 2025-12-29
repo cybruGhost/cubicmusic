@@ -8,9 +8,10 @@ import { MoodChips } from '@/components/MoodChips';
 import { FullscreenLyrics } from '@/components/lyrics/FullscreenLyrics';
 import { LibraryView } from '@/components/LibraryView';
 import { ExploreView } from '@/components/ExploreView';
-import { RadioPage } from '@/components/Radio'; // Note: Changed to capitalized Radio if that's your component name
+import { RadioPage } from '@/components/Radio';
 import { SettingsPage } from '@/components/SettingsPage';
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
+import { ChannelInfo } from '@/components/ChannelInfo';
 import { useSearch } from '@/hooks/useSearch';
 import { getPreferredArtists, hasCompletedOnboarding, getGreeting } from '@/lib/storage';
 import { toast } from 'sonner';
@@ -23,6 +24,7 @@ export default function Index() {
   const [showLyrics, setShowLyrics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showChannel, setShowChannel] = useState<string | null>(null);
   const { videos, loading, search } = useSearch();
 
   // Check onboarding on mount
@@ -34,16 +36,13 @@ export default function Index() {
 
   useEffect(() => {
     if (!initialized && !showOnboarding) {
-      // Use preferred artists if available
       const preferredArtists = getPreferredArtists();
       if (preferredArtists.length > 0) {
-        // Pick multiple random artists for variety
         const shuffled = [...preferredArtists].sort(() => Math.random() - 0.5);
         const selected = shuffled.slice(0, 3);
         search(selected.join(' '));
       } else {
-        // Random popular artists for variety
-        const defaultArtists = ['Taylor Swift', 'Drake', 'The Weeknd', 'Ed Sheeran', 'Dua Lipa', 'Bad Bunny', 'BTS', 'Billie Eilish'];
+        const defaultArtists = ['Taylor Swift', 'Drake', 'The Weeknd', 'Ed Sheeran', 'Dua Lipa'];
         const shuffled = [...defaultArtists].sort(() => Math.random() - 0.5);
         search(shuffled.slice(0, 3).join(' '));
       }
@@ -69,6 +68,10 @@ export default function Index() {
     search(`${mood} music playlist`);
   }, [search]);
 
+  const handleOpenChannel = (artist: string) => {
+    setShowChannel(artist);
+  };
+
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
     setSearchQuery('');
@@ -81,23 +84,16 @@ export default function Index() {
 
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
-    setInitialized(false); // Trigger reload with new preferences
+    setInitialized(false);
   };
 
-  // Show onboarding
   if (showOnboarding) {
     return <OnboardingFlow onComplete={handleOnboardingComplete} />;
   }
 
   return (
-    <div 
-      className="h-screen flex flex-col overflow-hidden"
-      style={{
-        background: 'var(--dynamic-bg, var(--gradient-hero))'
-      }}
-    >
+    <div className="h-screen flex flex-col overflow-hidden bg-gradient-to-b from-background to-muted/20">
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
         <Sidebar 
           activeTab={activeTab}
           onTabChange={handleTabChange}
@@ -105,10 +101,8 @@ export default function Index() {
           onSettingsClick={() => setShowSettings(true)}
         />
 
-        {/* Main Content */}
         <main className="flex-1 overflow-y-auto scrollbar-thin">
-          {/* Header with Search */}
-          <header className="sticky top-0 z-10 backdrop-blur-xl border-b border-border/30">
+          <header className="sticky top-0 z-10 backdrop-blur-xl border-b border-border/30 bg-background/80">
             <div className="px-6 py-4 flex items-center justify-between">
               <div className="flex-1 max-w-xl">
                 <SearchBar onSearch={handleSearch} />
@@ -119,7 +113,6 @@ export default function Index() {
             </div>
           </header>
 
-          {/* Content */}
           <div className="p-6 pb-28 space-y-8">
             {showSettings ? (
               <SettingsPage onBack={() => setShowSettings(false)} />
@@ -127,26 +120,22 @@ export default function Index() {
               <LibraryView />
             ) : activeTab === 'explore' ? (
               <ExploreView />
-            ) : activeTab === 'radio' ? (  // Added radio tab condition
+            ) : activeTab === 'radio' ? (
               <RadioPage />
             ) : (
-              /* Home View */
               <>
                 {!searchQuery && (
                   <>
-                    {/* Mood Chips */}
                     <section>
                       <MoodChips onMoodSelect={handleMoodSelect} activeMood={activeMood} />
                     </section>
 
-                    {/* Quick Picks */}
                     {videos.length > 0 && (
                       <section>
                         <QuickPicks videos={videos} />
                       </section>
                     )}
 
-                    {/* Main Grid */}
                     <section>
                       <MusicGrid
                         videos={videos.slice(8)}
@@ -172,11 +161,21 @@ export default function Index() {
         </main>
       </div>
 
-      {/* Fullscreen Lyrics */}
+      {/* Modals */}
       <FullscreenLyrics isOpen={showLyrics} onClose={() => setShowLyrics(false)} />
+      
+      {showChannel && (
+        <ChannelInfo 
+          artistName={showChannel} 
+          onClose={() => setShowChannel(null)} 
+        />
+      )}
 
       {/* Player Bar */}
-      <Player onLyricsOpen={() => setShowLyrics(true)} />
+      <Player 
+        onLyricsOpen={() => setShowLyrics(true)} 
+        onOpenChannel={handleOpenChannel}
+      />
     </div>
   );
 }
