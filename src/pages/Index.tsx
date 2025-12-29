@@ -99,7 +99,8 @@ export default function Index() {
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <Sidebar 
-          activeTab={activeTab} 
+          activeTab={activeTab}
+          {activeTab === 'radio' && <RadioPage />}
           onTabChange={handleTabChange}
           onSignInClick={handleSignInClick}
           onSettingsClick={() => setShowSettings(true)}
