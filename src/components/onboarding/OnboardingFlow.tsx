@@ -46,7 +46,7 @@ const SUGGESTED_ARTISTS: Artist[] = [
   { name: "BLACKPINK", genre: "K-Pop" },
   { name: "Peso Pluma", genre: "Latin" },
   { name: "Burna Boy", genre: "Afrobeats" },
-  { name: "NF", genre: "Hip-Hop" }, // Added NF to suggestions
+  { name: "NF", genre: "Hip-Hop" },
 ];
 
 interface OnboardingFlowProps {
@@ -76,17 +76,16 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     setSearchError('');
 
     try {
-      // Search from API - use the query directly without "artist" suffix
+      // Search from API
       const searchUrl = `https://yt.omada.cafe/api/v1/search?q=${encodeURIComponent(query)}`;
       
-      console.log('Searching URL:', searchUrl);
+      console.log('Searching for:', query);
       
       const response = await fetch(searchUrl, {
         headers: {
           'Accept': 'application/json',
         },
         mode: 'cors',
-        credentials: 'omit'
       });
 
       if (!response.ok) {
@@ -99,149 +98,179 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       const artists: Artist[] = [];
       const seen = new Set<string>();
 
-      // First add local matches (including exact match for NF)
-      const queryLower = query.toLowerCase();
-      const localMatches = SUGGESTED_ARTISTS.filter(artist =>
-        artist.name.toLowerCase().includes(queryLower)
+      // First add exact local matches
+      const queryLower = query.toLowerCase().trim();
+      const exactLocalMatch = SUGGESTED_ARTISTS.find(artist => 
+        artist.name.toLowerCase() === queryLower
       );
       
-      localMatches.forEach(artist => {
-        if (!seen.has(artist.name)) {
-          seen.add(artist.name);
-          artists.push(artist);
-        }
-      });
-
-      // Parse API response - check different possible structures
-      if (data) {
-        // Try to extract content from different possible response structures
-        let content = data.content || data.results || data.items || data;
-        
-        if (content && Array.isArray(content)) {
-          console.log('Found array of items:', content.length);
-          
-          content.forEach((item: any) => {
-            console.log('Processing item:', item);
-            
-            // Check for channel type with author
-            if (item.type === 'channel' || item.resultType === 'channel') {
-              const artistName = item.author || item.name || item.title;
-              if (artistName && artistName.trim()) {
-                const trimmedName = artistName.trim();
-                if (!seen.has(trimmedName)) {
-                  seen.add(trimmedName);
-                  artists.push({
-                    name: trimmedName,
-                    genre: 'Artist',
-                    id: item.authorId || item.channelId || item.id,
-                    thumbnail: item.authorThumbnails?.[0]?.url || item.thumbnail?.[0]?.url,
-                    verified: item.authorVerified || item.verified || false
-                  });
-                }
-              }
-            }
-            
-            // Check for video type with author
-            if (item.type === 'video' || item.resultType === 'video') {
-              const artistName = item.author || item.artist || item.channelName;
-              if (artistName && artistName.trim()) {
-                const trimmedName = artistName.trim();
-                if (!seen.has(trimmedName)) {
-                  seen.add(trimmedName);
-                  artists.push({
-                    name: trimmedName,
-                    genre: 'Artist',
-                    id: item.authorId || item.channelId,
-                    thumbnail: item.authorThumbnails?.[0]?.url || item.videoThumbnails?.[0]?.url,
-                    verified: item.authorVerified || false
-                  });
-                }
-              }
-              
-              // Also extract artist from video titles if author field is empty
-              if (item.title && (!artistName || artistName.trim() === '')) {
-                const title = item.title;
-                const patterns = [
-                  /^([^\-]+)\s*-\s*/,  // "Artist - Song"
-                  /^([^:]+)\s*:\s*/,   // "Artist: Song"
-                  /^([^\|]+)\s*\|\s*/, // "Artist | Song"
-                  /^([^\[]+)\s*\[\s*/, // "Artist [Song"
-                  /^([^\(]+)\s*\(\s*/, // "Artist (Song"
-                  /^([^~]+)\s*~\s*/,   // "Artist ~ Song"
-                  /^(.+?)\s+-\s+.+$/,  // "Artist - Song" (anywhere)
-                  /^(.+?)\s+by\s+(.+)$/i, // "Song by Artist"
-                ];
-                
-                for (const pattern of patterns) {
-                  const match = title.match(pattern);
-                  if (match && match[1]) {
-                    const potentialArtist = match[1].trim();
-                    if (potentialArtist && !seen.has(potentialArtist) && 
-                        potentialArtist.toLowerCase().includes(queryLower)) {
-                      seen.add(potentialArtist);
-                      artists.push({
-                        name: potentialArtist,
-                        genre: 'Artist',
-                        id: item.authorId || item.channelId,
-                        thumbnail: item.videoThumbnails?.[0]?.url,
-                        verified: item.authorVerified || false
-                      });
-                      break;
-                    }
-                  }
-                }
-              }
-            }
-          });
-        } else {
-          console.warn('No content array found in response:', data);
-        }
+      if (exactLocalMatch && !seen.has(exactLocalMatch.name)) {
+        seen.add(exactLocalMatch.name);
+        artists.push(exactLocalMatch);
       }
 
-      // Filter to ensure artists match the query
-      const filteredArtists = artists.filter(artist => {
-        const artistNameLower = artist.name.toLowerCase();
-        const queryWords = queryLower.split(/\s+/).filter(word => word.length > 1);
+      // Parse API response - it's an array directly
+      if (Array.isArray(data)) {
+        console.log('Found array with', data.length, 'items');
         
-        // Exact match or contains query
-        if (artistNameLower === queryLower || artistNameLower.includes(queryLower)) {
-          return true;
+        // First pass: Add all channels (these are artists)
+        data.forEach((item: any) => {
+          if (item.type === 'channel' && item.author && item.author.trim()) {
+            const artistName = item.author.trim();
+            if (!seen.has(artistName) && artistName.length > 1) {
+              seen.add(artistName);
+              artists.push({
+                name: artistName,
+                genre: 'Artist',
+                id: item.authorId,
+                thumbnail: item.authorThumbnails?.[item.authorThumbnails.length - 1]?.url, // Get largest thumbnail
+                verified: item.authorVerified || false
+              });
+            }
+          }
+        });
+
+        // Second pass: Add video authors (these are also artists)
+        data.forEach((item: any) => {
+          if (item.type === 'video' && item.author && item.author.trim()) {
+            const artistName = item.author.trim();
+            if (!seen.has(artistName) && artistName.length > 1) {
+              seen.add(artistName);
+              artists.push({
+                name: artistName,
+                genre: 'Artist',
+                id: item.authorId,
+                thumbnail: item.authorThumbnails?.[item.authorThumbnails.length - 1]?.url,
+                verified: item.authorVerified || false
+              });
+            }
+          }
+        });
+
+        // Third pass: Extract artist names from video titles for better coverage
+        data.forEach((item: any) => {
+          if (item.type === 'video' && item.title) {
+            const title = item.title;
+            const queryWords = queryLower.split(/\s+/).filter(w => w.length > 1);
+            
+            // Pattern matching for "Artist - Song Title"
+            const patterns = [
+              /^([^\-]+)\s*-\s*(.+)$/i,  // "NF - FEAR"
+              /^([^:]+)\s*:\s*(.+)$/i,   // "Artist: Song"
+              /^(.+?)\s*\|\s*(.+)$/i,    // "Artist | Song"
+              /^([^\(]+)\s*\(([^)]+)\)/i, // "Artist (Song)"
+              /^(.+?)\s+-\s+(.+)$/i,     // "Artist - Song" (anywhere)
+            ];
+            
+            for (const pattern of patterns) {
+              const match = title.match(pattern);
+              if (match && match[1]) {
+                const potentialArtist = match[1].trim();
+                
+                // Check if this artist name contains our query or vice versa
+                const artistLower = potentialArtist.toLowerCase();
+                const matchesQuery = artistLower.includes(queryLower) || 
+                                    queryLower.includes(artistLower) ||
+                                    queryWords.some(word => artistLower.includes(word)) ||
+                                    artistLower.split(/\s+/).some(word => queryLower.includes(word));
+                
+                if (matchesQuery && !seen.has(potentialArtist) && potentialArtist.length > 1) {
+                  seen.add(potentialArtist);
+                  artists.push({
+                    name: potentialArtist,
+                    genre: 'Artist',
+                    id: item.authorId,
+                    thumbnail: item.videoThumbnails?.[0]?.url, // First thumbnail
+                    verified: item.authorVerified || false
+                  });
+                  break;
+                }
+              }
+            }
+          }
+        });
+
+        // Add more local matches if we have few results
+        if (artists.length < 5) {
+          const localMatches = SUGGESTED_ARTISTS.filter(artist => {
+            const artistLower = artist.name.toLowerCase();
+            return artistLower.includes(queryLower) && !seen.has(artist.name);
+          });
+          
+          localMatches.forEach(artist => {
+            if (!seen.has(artist.name)) {
+              seen.add(artist.name);
+              artists.push(artist);
+            }
+          });
         }
-        
-        // Check if query contains artist name (partial)
-        if (queryLower.includes(artistNameLower)) {
-          return true;
-        }
-        
-        // Check word-by-word matching
-        const artistWords = artistNameLower.split(/\s+/);
-        const hasWordMatch = queryWords.some(qWord => 
-          artistWords.some(aWord => aWord.includes(qWord) || qWord.includes(aWord))
+      } else {
+        console.warn('Response is not an array:', data);
+        // Fallback to local search only
+        const fallbackResults = SUGGESTED_ARTISTS.filter(artist =>
+          artist.name.toLowerCase().includes(queryLower)
         );
+        setSearchResults(fallbackResults);
+        return;
+      }
+
+      // Filter and sort artists
+      const filteredArtists = artists.filter(artist => {
+        if (!artist.name || artist.name.length < 2) return false;
         
-        return hasWordMatch;
+        const artistLower = artist.name.toLowerCase();
+        
+        // Exact match is always included
+        if (artistLower === queryLower) return true;
+        
+        // Check if artist name contains query or vice versa
+        if (artistLower.includes(queryLower) || queryLower.includes(artistLower)) {
+          return true;
+        }
+        
+        // Word matching
+        const queryWords = queryLower.split(/\s+/).filter(w => w.length > 1);
+        const artistWords = artistLower.split(/\s+/).filter(w => w.length > 1);
+        
+        return queryWords.some(qWord => 
+          artistWords.some(aWord => 
+            aWord.includes(qWord) || qWord.includes(aWord)
+          )
+        );
       });
 
-      // Sort by: exact match first, then verification, then alphabetical
-      const sortedArtists = filteredArtists
+      // Remove duplicates (by name) after filtering
+      const uniqueArtists = filteredArtists.filter((artist, index, self) =>
+        index === self.findIndex((a) => a.name.toLowerCase() === artist.name.toLowerCase())
+      );
+
+      // Sort by: exact match first, then verification, then name similarity
+      const sortedArtists = uniqueArtists
         .sort((a, b) => {
+          // Exact match first
           const aExact = a.name.toLowerCase() === queryLower ? 0 : 1;
           const bExact = b.name.toLowerCase() === queryLower ? 0 : 1;
           if (aExact !== bExact) return aExact - bExact;
           
+          // Verified artists next
           if (a.verified && !b.verified) return -1;
           if (!a.verified && b.verified) return 1;
           
+          // Shorter names (often more exact) first
+          if (a.name.length !== b.name.length) return a.name.length - b.name.length;
+          
+          // Alphabetical
           return a.name.localeCompare(b.name);
         })
-        .slice(0, 20);
+        .slice(0, 15); // Limit to 15 results
 
-      console.log('Final artists list:', sortedArtists);
+      console.log('Final sorted artists:', sortedArtists);
       setSearchResults(sortedArtists);
       
     } catch (error) {
       console.error('Search error:', error);
-      setSearchError(`Search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setSearchError(`Search failed: ${errorMessage}`);
       
       // Fallback to local search only
       const fallbackResults = SUGGESTED_ARTISTS.filter(artist =>
@@ -302,7 +331,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     const notSelected = !selectedArtists.some(a => a.name === artist.name);
     const notInSearch = !searchResults.some(r => r.name === artist.name);
     return notSelected && notInSearch;
-  });
+  }).slice(0, 20); // Show only top 20 suggested
 
   return (
     <motion.div
@@ -527,15 +556,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                             )}
                             <span className="font-medium">{artist.name}</span>
                             {artist.verified && (
-                              <span className="text-xs text-blue-500">✓</span>
-                            )}
-                            {artist.genre && artist.genre !== 'Artist' && (
-                              <span className={cn(
-                                "text-xs px-1 py-0.5 rounded",
-                                isSelected ? "text-primary-foreground/70" : "text-muted-foreground"
-                              )}>
-                                {artist.genre}
-                              </span>
+                              <span className="text-xs text-blue-500 bg-blue-500/10 px-1 py-0.5 rounded">✓</span>
                             )}
                           </motion.button>
                         );
@@ -555,37 +576,39 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
               )}
 
               {/* Suggested Artists */}
-              <div className="mb-4">
-                <h3 className="text-sm font-medium text-foreground mb-2">
-                  Popular Artists
-                </h3>
-                <div className="flex flex-wrap gap-1.5">
-                  {displayedSuggestedArtists.map((artist) => {
-                    const isSelected = selectedArtists.some(a => a.name === artist.name);
-                    return (
-                      <motion.button
-                        key={artist.name}
-                        onClick={() => toggleArtist(artist)}
-                        whileTap={{ scale: 0.95 }}
-                        className={cn(
-                          "px-3 py-1.5 rounded-full border text-sm transition-all flex items-center gap-1.5",
-                          isSelected
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-secondary/50 border-border/50 hover:border-primary/50"
-                        )}
-                      >
-                        {artist.name}
-                        <span className={cn(
-                          "text-xs px-1 py-0.5 rounded",
-                          isSelected ? "text-primary-foreground/70" : "text-muted-foreground"
-                        )}>
-                          {artist.genre}
-                        </span>
-                      </motion.button>
-                    );
-                  })}
+              {displayedSuggestedArtists.length > 0 && (
+                <div className="mb-4">
+                  <h3 className="text-sm font-medium text-foreground mb-2">
+                    Popular Artists
+                  </h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {displayedSuggestedArtists.map((artist) => {
+                      const isSelected = selectedArtists.some(a => a.name === artist.name);
+                      return (
+                        <motion.button
+                          key={artist.name}
+                          onClick={() => toggleArtist(artist)}
+                          whileTap={{ scale: 0.95 }}
+                          className={cn(
+                            "px-3 py-1.5 rounded-full border text-sm transition-all flex items-center gap-1.5",
+                            isSelected
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-secondary/50 border-border/50 hover:border-primary/50"
+                          )}
+                        >
+                          {artist.name}
+                          <span className={cn(
+                            "text-xs px-1 py-0.5 rounded",
+                            isSelected ? "text-primary-foreground/70" : "text-muted-foreground"
+                          )}>
+                            {artist.genre}
+                          </span>
+                        </motion.button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Actions */}
               <div className="flex items-center justify-between pt-4 border-t border-border/50">
