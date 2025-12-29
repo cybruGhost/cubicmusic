@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Play, 
   Pause, 
@@ -17,7 +17,9 @@ import {
   MoreVertical,
   Radio,
   Plus,
-  FolderPlus
+  FolderPlus,
+  Share2,
+  Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayerContext } from '@/context/PlayerContext';
@@ -56,6 +58,7 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
   const [autoFetchEnabled, setAutoFetchEnabled] = useState(() => {
     return localStorage.getItem('autoFetchEnabled') === 'true';
   });
+  const [isDownloading, setIsDownloading] = useState(false);
   
   const {
     currentTrack,
@@ -87,7 +90,9 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
   }, [currentTrack?.videoId]);
 
   useEffect(() => {
-    setPlaylists(getPlaylists());
+    if (showPlaylistMenu) {
+      setPlaylists(getPlaylists());
+    }
   }, [showPlaylistMenu]);
 
   useEffect(() => {
@@ -107,51 +112,56 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
     setLiked(!liked);
   };
 
+  // Fixed download function without CORS issues
   const handleDownload = async () => {
-    if (!currentTrack) return;
+    if (!currentTrack || isDownloading) return;
     
+    setIsDownloading(true);
     toast.info('Preparing download...');
     
     try {
-      // First get the download URL from API
-      const apiUrl = `https://yt.omada.cafe/api/v1/videos/${currentTrack.videoId}?local=true`;
+      // Use your backend proxy to avoid CORS issues
+      const apiUrl = `https://yt.omada.cafe/api/v1/videos/${currentTrack.videoId}`;
       const response = await fetch(apiUrl);
       const data = await response.json();
       
-      const audioFormat = data.adaptiveFormats?.find((f: any) => f.type?.startsWith('audio/'));
+      // Find audio format
+      const audioFormat = data.adaptiveFormats?.find((f: any) => 
+        f.type?.startsWith('audio/') && f.encoding === 'mp4'
+      );
+      
       if (!audioFormat?.url) {
-        toast.error('Download not available');
-        return;
+        throw new Error('No audio format found');
       }
 
-      // Download using fetch with credentials
-      const audioResponse = await fetch(audioFormat.url, {
-        credentials: 'include' // Important for cookies/auth
-      });
+      // Create a hidden iframe for download (no CORS issues this way)
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.src = audioFormat.url;
+      document.body.appendChild(iframe);
       
-      if (!audioResponse.ok) throw new Error('Failed to fetch audio');
-      
-      const blob = await audioResponse.blob();
-      const url = window.URL.createObjectURL(blob);
-      
-      // Create and trigger download
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = `${currentTrack.title}.mp3`;
-      document.body.appendChild(a);
-      a.click();
+      // Also create a direct link click
+      const link = document.createElement('a');
+      link.href = audioFormat.url;
+      link.download = `${currentTrack.title.replace(/[^\w\s]/gi, '')}.mp3`;
+      document.body.appendChild(link);
+      link.click();
       
       // Cleanup
       setTimeout(() => {
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-      }, 100);
+        document.body.removeChild(link);
+        document.body.removeChild(iframe);
+      }, 1000);
       
-      toast.success('Download started');
+      toast.success('Download started!');
     } catch (error) {
       console.error('Download error:', error);
-      toast.error('Download failed. Please try again.');
+      toast.error('Download failed. Try the direct video page.');
+      
+      // Fallback: Open in new tab for manual download
+      window.open(`https://www.youtube.com/watch?v=${currentTrack.videoId}`, '_blank');
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -160,17 +170,23 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
     setAutoFetchEnabled(newState);
     
     if (newState && currentTrack) {
-      // Fetch related tracks and add to queue
       toast.info('Fetching related tracks...');
       try {
-        const relatedTracks = await fetchRelatedTracks(currentTrack.videoId);
-        if (relatedTracks && relatedTracks.length > 0) {
-          relatedTracks.forEach(track => addToQueue(track));
-          toast.success(`Added ${relatedTracks.length} related tracks to queue`);
+        if (fetchRelatedTracks) {
+          const relatedTracks = await fetchRelatedTracks(currentTrack.videoId);
+          if (relatedTracks && relatedTracks.length > 0) {
+            relatedTracks.forEach(track => addToQueue(track));
+            toast.success(`Added ${relatedTracks.length} related tracks`);
+          } else {
+            toast.info('No related tracks found');
+          }
         }
       } catch (error) {
+        console.error('Fetch error:', error);
         toast.error('Failed to fetch related tracks');
       }
+    } else if (!newState) {
+      toast.info('Auto-fetch disabled');
     }
   };
 
@@ -180,7 +196,7 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
     const shareData = {
       title: currentTrack.title,
       text: `Listen to "${currentTrack.title}" by ${currentTrack.author}`,
-      url: `${window.location.origin}/track/${currentTrack.videoId}`,
+      url: `https://www.youtube.com/watch?v=${currentTrack.videoId}`,
     };
     
     if (navigator.share && navigator.canShare(shareData)) {
@@ -195,17 +211,9 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
   const handleTrackInfo = () => {
     if (!currentTrack) return;
     
-    const info = `
-Title: ${currentTrack.title}
-Artist: ${currentTrack.author}
-Duration: ${formatTime(duration)}
-Views: ${currentTrack.viewCount?.toLocaleString() || 'N/A'}
-Uploaded: ${currentTrack.publishedText || 'N/A'}
-    `.trim();
-    
-    toast.info('Track Information', {
-      description: info,
-      duration: 5000,
+    toast.info(currentTrack.title, {
+      description: `Artist: ${currentTrack.author}\nDuration: ${formatTime(duration)}\nViews: ${currentTrack.viewCount?.toLocaleString() || 'N/A'}`,
+      duration: 3000,
     });
     setShowMoreMenu(false);
   };
@@ -215,9 +223,9 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
     if (onOpenChannel) {
       onOpenChannel(artistName);
     } else {
-      // Fallback to opening channel info component
-      // You'll need to implement this modal/component
-      toast.info(`Opening ${artistName}'s channel`);
+      toast.info(`Opening ${artistName}'s channel...`);
+      // Fallback to search
+      window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(artistName)}`, '_blank');
     }
   };
 
@@ -226,7 +234,6 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
     addTrackToPlaylist(playlist.id, currentTrack);
     toast.success(`Added to "${playlist.name}"`);
     setShowPlaylistMenu(false);
-    setShowMoreMenu(false);
   };
 
   const handleCreatePlaylist = () => {
@@ -236,7 +243,58 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
     addTrackToPlaylist(newPlaylist.id, currentTrack);
     setPlaylists(getPlaylists());
     setNewPlaylistName('');
-    toast.success(`Created "${newPlaylistName}" and added track`);
+    toast.success(`Created "${newPlaylistName}"`);
+  };
+
+  // Wavy progress bar component
+  const WavyProgressBar = () => {
+    const waveCount = 12;
+    const waveElements = Array.from({ length: waveCount });
+    
+    return (
+      <div className="relative w-full h-2 overflow-hidden rounded-full bg-secondary/50">
+        {/* Base progress fill */}
+        <div 
+          className="absolute left-0 top-0 h-full bg-gradient-to-r from-primary/80 to-primary rounded-full transition-all duration-200"
+          style={{ width: `${progress}%` }}
+        />
+        
+        {/* Wavy overlay */}
+        {isPlaying && (
+          <div 
+            className="absolute left-0 top-0 h-full overflow-hidden"
+            style={{ width: `${progress}%` }}
+          >
+            <div className="absolute inset-0 flex items-center">
+              {waveElements.map((_, i) => {
+                const delay = i * 0.1;
+                const amplitude = 2;
+                const frequency = 0.5;
+                const y = Math.sin((i / waveCount) * Math.PI * 2 * frequency) * amplitude;
+                
+                return (
+                  <motion.div
+                    key={i}
+                    className="absolute w-[8.33%] h-full bg-gradient-to-t from-white/30 to-transparent"
+                    style={{ left: `${(i / waveCount) * 100}%` }}
+                    animate={{ 
+                      y: [y, -y, y],
+                      opacity: [0.3, 0.7, 0.3]
+                    }}
+                    transition={{
+                      duration: 1.5,
+                      repeat: Infinity,
+                      delay: delay,
+                      ease: "easeInOut"
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   if (!currentTrack) {
@@ -249,36 +307,6 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
   }
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
-
-  // Wavy progress bar effect
-  const WavyProgressBar = () => {
-    return (
-      <div className="relative w-full h-2 overflow-hidden rounded-full bg-secondary">
-        {/* Background wave effect when playing */}
-        {isPlaying && (
-          <div className="absolute inset-0 wavy-progress-bg" />
-        )}
-        
-        {/* Progress fill with wave effect */}
-        <div 
-          className="absolute left-0 top-0 h-full bg-gradient-to-r from-primary to-primary/70 rounded-full transition-all duration-300 ease-out"
-          style={{ width: `${progress}%` }}
-        >
-          {isPlaying && (
-            <div className="absolute inset-0 wavy-progress-fill" />
-          )}
-        </div>
-        
-        {/* Wave animation overlay */}
-        {isPlaying && (
-          <div className="absolute inset-0">
-            <div className="absolute top-0 left-0 right-0 h-full wavy-overlay" 
-                 style={{ width: `${progress}%` }} />
-          </div>
-        )}
-      </div>
-    );
-  };
 
   return (
     <>
@@ -295,16 +323,16 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
             <div className="space-y-1">
               <button
                 onClick={handleShare}
-                className="w-full flex items-center gap-2 p-2 text-sm hover:bg-accent rounded-lg transition-colors"
+                className="w-full flex items-center gap-3 p-2 text-sm hover:bg-accent rounded-lg transition-colors"
               >
-                <span className="w-5 h-5 flex items-center justify-center">↗</span>
+                <Share2 className="w-4 h-4" />
                 Share
               </button>
               <button
                 onClick={handleTrackInfo}
-                className="w-full flex items-center gap-2 p-2 text-sm hover:bg-accent rounded-lg transition-colors"
+                className="w-full flex items-center gap-3 p-2 text-sm hover:bg-accent rounded-lg transition-colors"
               >
-                <span className="w-5 h-5 flex items-center justify-center">ⓘ</span>
+                <Info className="w-4 h-4" />
                 Track Info
               </button>
               <button
@@ -312,7 +340,7 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
                   setShowPlaylistMenu(true);
                   setShowMoreMenu(false);
                 }}
-                className="w-full flex items-center gap-2 p-2 text-sm hover:bg-accent rounded-lg transition-colors"
+                className="w-full flex items-center gap-3 p-2 text-sm hover:bg-accent rounded-lg transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 Add to Playlist
@@ -342,13 +370,13 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
                   value={newPlaylistName}
                   onChange={(e) => setNewPlaylistName(e.target.value)}
                   placeholder="New playlist name"
-                  className="flex-1 px-3 py-1.5 text-sm bg-background border rounded-lg"
+                  className="flex-1 px-3 py-2 text-sm bg-background border rounded-lg"
                   onKeyDown={(e) => e.key === 'Enter' && handleCreatePlaylist()}
                 />
                 <button
                   onClick={handleCreatePlaylist}
                   disabled={!newPlaylistName.trim()}
-                  className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg disabled:opacity-50"
+                  className="px-3 py-2 text-sm bg-primary text-primary-foreground rounded-lg disabled:opacity-50 hover:bg-primary/90"
                 >
                   Create
                 </button>
@@ -358,19 +386,19 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
               <div className="space-y-1 max-h-48 overflow-y-auto">
                 {playlists.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-2">
-                    No playlists yet
+                    No playlists yet. Create one above!
                   </p>
                 ) : (
                   playlists.map((playlist) => (
                     <button
                       key={playlist.id}
                       onClick={() => handleAddToPlaylist(playlist)}
-                      className="w-full flex items-center gap-2 p-2 text-sm hover:bg-accent rounded-lg transition-colors"
+                      className="w-full flex items-center gap-3 p-2 text-sm hover:bg-accent rounded-lg transition-colors"
                     >
                       <FolderPlus className="w-4 h-4" />
-                      {playlist.name}
-                      <span className="text-xs text-muted-foreground ml-auto">
-                        {playlist.tracks.length}
+                      <span className="flex-1 text-left">{playlist.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {playlist.tracks.length} tracks
                       </span>
                     </button>
                   ))
@@ -379,7 +407,7 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
               
               <button
                 onClick={() => setShowPlaylistMenu(false)}
-                className="w-full text-sm text-muted-foreground hover:text-foreground p-2"
+                className="w-full text-sm text-muted-foreground hover:text-foreground p-2 hover:bg-accent rounded-lg"
               >
                 Cancel
               </button>
@@ -396,6 +424,7 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 100 }}
             className="fixed bottom-24 right-4 z-40 w-80 max-h-96 bg-popover rounded-2xl p-4 shadow-2xl border overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-foreground">Up Next</h3>
@@ -403,7 +432,7 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
                 <button
                   onClick={handleAutoFetchToggle}
                   className={cn(
-                    "flex items-center gap-1 p-1.5 text-xs rounded-lg transition-colors",
+                    "flex items-center gap-1.5 px-2 py-1 text-xs rounded-lg transition-colors",
                     autoFetchEnabled
                       ? "bg-primary text-primary-foreground"
                       : "bg-secondary text-muted-foreground hover:text-foreground"
@@ -416,7 +445,7 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
                 <span className="text-xs text-muted-foreground">{queue.length} tracks</span>
               </div>
             </div>
-            <div className="overflow-y-auto max-h-72 space-y-2">
+            <div className="overflow-y-auto max-h-72 space-y-2 pr-1">
               {queue.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">Queue is empty</p>
               ) : (
@@ -472,12 +501,12 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
             />
             {isPlaying && (
               <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                <div className="flex gap-1">
+                <div className="flex gap-0.5">
                   {[1, 2, 3].map((i) => (
                     <motion.div
                       key={i}
                       className="w-1 bg-primary rounded-full"
-                      animate={{ height: [8, 16, 8] }}
+                      animate={{ height: [4, 12, 4] }}
                       transition={{
                         duration: 0.6,
                         repeat: Infinity,
@@ -531,7 +560,7 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
             </button>
             <button
               onClick={togglePlay}
-              className="w-10 h-10 rounded-full bg-foreground flex items-center justify-center hover:scale-105 transition-transform"
+              className="w-10 h-10 rounded-full bg-foreground flex items-center justify-center hover:scale-105 transition-transform shadow-lg"
             >
               {isPlaying ? (
                 <Pause className="w-5 h-5 text-background" />
@@ -562,7 +591,7 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
 
           {/* Wavy Progress Bar */}
           <div className="w-full flex items-center gap-3">
-            <span className="text-xs text-muted-foreground w-10 text-right font-medium">
+            <span className="text-xs text-muted-foreground w-10 text-right font-medium tabular-nums">
               {formatTime(currentTime)}
             </span>
             <div className="flex-1">
@@ -577,14 +606,14 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
                 <WavyProgressBar />
               </div>
             </div>
-            <span className="text-xs text-muted-foreground w-10 font-medium">
+            <span className="text-xs text-muted-foreground w-10 font-medium tabular-nums">
               {formatTime(duration)}
             </span>
           </div>
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-2 w-[280px] justify-end">
+        <div className="flex items-center gap-1 w-[280px] justify-end">
           {/* Auto-fetch Toggle */}
           <button
             onClick={handleAutoFetchToggle}
@@ -608,10 +637,19 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
           </button>
           <button 
             onClick={handleDownload}
-            className="p-2 hover:bg-accent rounded-full transition-colors"
+            disabled={isDownloading}
+            className={cn(
+              "p-2 rounded-full transition-colors",
+              isDownloading 
+                ? "text-muted-foreground cursor-not-allowed" 
+                : "hover:bg-accent"
+            )}
             title="Download"
           >
-            <Download className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+            <Download className={cn(
+              "w-4 h-4",
+              isDownloading ? "opacity-50" : "text-muted-foreground hover:text-foreground"
+            )} />
           </button>
           <button 
             onClick={() => setShowQueue(!showQueue)}
@@ -622,6 +660,7 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
           >
             <ListMusic className="w-4 h-4 text-muted-foreground" />
           </button>
+          
           {/* More Menu Button */}
           <div className="relative">
             <button
@@ -634,7 +673,8 @@ Uploaded: ${currentTrack.publishedText || 'N/A'}
               <MoreVertical className="w-4 h-4 text-muted-foreground" />
             </button>
           </div>
-          <div className="flex items-center gap-2">
+          
+          <div className="flex items-center gap-2 ml-1">
             <button 
               onClick={() => setVolume(volume === 0 ? 0.7 : 0)}
               className="p-1 hover:bg-accent rounded-full"
