@@ -77,13 +77,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         artist.name.toLowerCase().includes(query.toLowerCase())
       );
 
-      if (localMatches.length > 0) {
-        setSearchResults(localMatches);
-        setIsSearching(false);
-        return;
-      }
-
-      // Search from API - no filter parameter, just the query
+      // Search from API
       const response = await fetch(
         `https://yt.omada.cafe/api/v1/search?q=${encodeURIComponent(query)}`
       );
@@ -93,85 +87,107 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       }
 
       const data = await response.json();
-      console.log('API Response for:', query, data);
+      console.log('API Response:', data);
 
+      const artists: Artist[] = [];
+      const seen = new Set<string>();
+
+      // Add local matches first
+      localMatches.forEach(artist => {
+        if (!seen.has(artist.name)) {
+          seen.add(artist.name);
+          artists.push(artist);
+        }
+      });
+
+      // Parse API response - extract ALL items with author field
       if (data && Array.isArray(data.content)) {
-        const artists: Artist[] = [];
-        const seen = new Set<string>();
-
-        // Parse API response - extract ALL items with author field
         data.content.forEach((item: any) => {
-          // Check if item has an author field and authorId (this indicates it's likely an artist/channel)
-          if (item.author && item.authorId && item.authorId.startsWith('UC')) {
-            const artistName = item.author;
+          // Check if item has an author field
+          if (item.author) {
+            const artistName = item.author.trim();
             
-            if (!seen.has(artistName)) {
-              seen.add(artistName);
-              
-              artists.push({
-                name: artistName,
-                genre: 'Artist',
-                id: item.authorId,
-                thumbnail: item.authorThumbnails?.[0]?.url || item.videoThumbnails?.[0]?.url,
-                verified: item.authorVerified || false
-              });
+            // Skip if we've already seen this artist
+            if (!artistName || seen.has(artistName)) {
+              return;
             }
-          }
-          
-          // Also check for channel type specifically
-          if (item.type === 'channel' && item.author) {
-            const artistName = item.author;
+
+            seen.add(artistName);
             
-            if (!seen.has(artistName)) {
-              seen.add(artistName);
-              
-              artists.push({
-                name: artistName,
-                genre: 'Artist',
-                id: item.authorId,
-                thumbnail: item.authorThumbnails?.[0]?.url,
-                verified: item.authorVerified || false
-              });
+            // Determine artist ID
+            let artistId = item.authorId;
+            // If no authorId but it's a video/channel, use browseId or videoId
+            if (!artistId) {
+              artistId = item.browseId || item.videoId || item.channelId;
             }
-          }
-          
-          // Also extract from video type with author
-          if (item.type === 'video' && item.author && item.authorId) {
-            const artistName = item.author;
             
-            if (!seen.has(artistName)) {
-              seen.add(artistName);
-              
-              artists.push({
-                name: artistName,
-                genre: 'Artist',
-                id: item.authorId,
-                thumbnail: item.videoThumbnails?.[0]?.url,
-                verified: item.authorVerified || false
-              });
-            }
+            // Determine thumbnail
+            let thumbnail = item.authorThumbnails?.[0]?.url || 
+                           item.videoThumbnails?.[0]?.url ||
+                           item.thumbnails?.[0]?.url;
+            
+            // Determine if verified
+            const verified = item.authorVerified || false;
+            
+            artists.push({
+              name: artistName,
+              genre: 'Artist',
+              id: artistId,
+              thumbnail: thumbnail,
+              verified: verified
+            });
           }
         });
 
-        // Sort by verification status (verified first) and then alphabetically
-        const sortedArtists = artists
-          .sort((a, b) => {
-            // Verified first
-            if (a.verified && !b.verified) return -1;
-            if (!a.verified && b.verified) return 1;
-            // Then alphabetical
-            return a.name.localeCompare(b.name);
-          })
-          .slice(0, 20); // Limit results
-
-        console.log('Extracted artists:', sortedArtists);
-        setSearchResults(sortedArtists);
-      } else {
-        setSearchResults([]);
+        // Also try to extract artist names from video titles
+        data.content.forEach((item: any) => {
+          if (item.title && item.type === 'video') {
+            // Common patterns: "Artist - Song Title", "Artist: Song Title", "Artist 'Song Title'"
+            const patterns = [
+              /^([^\-]+)\s*-\s*/,  // "Artist - "
+              /^([^:]+)\s*:\s*/,   // "Artist: "
+              /^([^']+)\s*'/,      // "Artist '"
+              /^([^\(]+)\s*\(/,    // "Artist ("
+            ];
+            
+            for (const pattern of patterns) {
+              const match = item.title.match(pattern);
+              if (match && match[1]) {
+                const potentialArtist = match[1].trim();
+                if (potentialArtist && !seen.has(potentialArtist)) {
+                  seen.add(potentialArtist);
+                  artists.push({
+                    name: potentialArtist,
+                    genre: 'Artist',
+                    id: item.authorId || item.videoId,
+                    thumbnail: item.videoThumbnails?.[0]?.url,
+                    verified: item.authorVerified || false
+                  });
+                  break;
+                }
+              }
+            }
+          }
+        });
       }
+
+      // Sort by verification status (verified first), then by name
+      const sortedArtists = artists
+        .sort((a, b) => {
+          // Verified first
+          if (a.verified && !b.verified) return -1;
+          if (!a.verified && b.verified) return 1;
+          // Then alphabetical
+          return a.name.localeCompare(b.name);
+        })
+        .slice(0, 15); // Limit results
+
+      console.log('Final artists list:', sortedArtists);
+      setSearchResults(sortedArtists);
+      
     } catch (error) {
       console.error('Search error:', error);
-      // Fallback to local search
+      // Fallback to local search only
       const fallbackResults = SUGGESTED_ARTISTS.filter(artist =>
         artist.name.toLowerCase().includes(query.toLowerCase())
       );
@@ -324,7 +340,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
                     type="text"
-                    placeholder="Search for artists (e.g., Lauren, NF, Drake)..."
+                    placeholder="Search for artists (e.g., Lana, Lauren, NF)..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10 pr-8 py-4 bg-secondary/50 border-border/50 rounded-lg"
