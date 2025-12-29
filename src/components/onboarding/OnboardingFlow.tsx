@@ -12,6 +12,7 @@ interface Artist {
   genre?: string;
   id?: string;
   thumbnail?: string;
+  verified?: boolean;
 }
 
 const SUGGESTED_ARTISTS: Artist[] = [
@@ -82,7 +83,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         return;
       }
 
-      // Search from API
+      // Search from API - no filter parameter, just the query
       const response = await fetch(
         `https://yt.omada.cafe/api/v1/search?q=${encodeURIComponent(query)}`
       );
@@ -92,66 +93,79 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       }
 
       const data = await response.json();
-      console.log('API Response:', data);
+      console.log('API Response for:', query, data);
 
       if (data && Array.isArray(data.content)) {
         const artists: Artist[] = [];
         const seen = new Set<string>();
 
-        // Parse API response
+        // Parse API response - extract ALL items with author field
         data.content.forEach((item: any) => {
-          // Extract from channel type
-          if (item.type === 'channel' && item.author) {
-            if (!seen.has(item.author)) {
-              seen.add(item.author);
+          // Check if item has an author field and authorId (this indicates it's likely an artist/channel)
+          if (item.author && item.authorId && item.authorId.startsWith('UC')) {
+            const artistName = item.author;
+            
+            if (!seen.has(artistName)) {
+              seen.add(artistName);
+              
               artists.push({
-                name: item.author,
+                name: artistName,
                 genre: 'Artist',
                 id: item.authorId,
-                thumbnail: item.authorThumbnails?.[0]?.url
+                thumbnail: item.authorThumbnails?.[0]?.url || item.videoThumbnails?.[0]?.url,
+                verified: item.authorVerified || false
               });
             }
           }
           
-          // Extract from video type
-          if (item.type === 'video' && item.author) {
-            if (!seen.has(item.author)) {
-              seen.add(item.author);
+          // Also check for channel type specifically
+          if (item.type === 'channel' && item.author) {
+            const artistName = item.author;
+            
+            if (!seen.has(artistName)) {
+              seen.add(artistName);
+              
               artists.push({
-                name: item.author,
+                name: artistName,
                 genre: 'Artist',
                 id: item.authorId,
-                thumbnail: item.videoThumbnails?.[0]?.url
+                thumbnail: item.authorThumbnails?.[0]?.url,
+                verified: item.authorVerified || false
+              });
+            }
+          }
+          
+          // Also extract from video type with author
+          if (item.type === 'video' && item.author && item.authorId) {
+            const artistName = item.author;
+            
+            if (!seen.has(artistName)) {
+              seen.add(artistName);
+              
+              artists.push({
+                name: artistName,
+                genre: 'Artist',
+                id: item.authorId,
+                thumbnail: item.videoThumbnails?.[0]?.url,
+                verified: item.authorVerified || false
               });
             }
           }
         });
 
-        // Also check for artists in title (for song searches)
-        data.content.forEach((item: any) => {
-          if (item.title && item.type === 'video') {
-            // Try to extract artist from title (format: "Artist - Song Title")
-            const titleMatch = item.title.match(/^([^\-]+)\s*-\s*/);
-            if (titleMatch && titleMatch[1]) {
-              const potentialArtist = titleMatch[1].trim();
-              if (!seen.has(potentialArtist)) {
-                seen.add(potentialArtist);
-                artists.push({
-                  name: potentialArtist,
-                  genre: 'Artist',
-                  id: item.authorId
-                });
-              }
-            }
-          }
-        });
+        // Sort by verification status (verified first) and then alphabetically
+        const sortedArtists = artists
+          .sort((a, b) => {
+            // Verified first
+            if (a.verified && !b.verified) return -1;
+            if (!a.verified && b.verified) return 1;
+            // Then alphabetical
+            return a.name.localeCompare(b.name);
+          })
+          .slice(0, 20); // Limit results
 
-        // Limit results and remove duplicates
-        const uniqueArtists = artists.filter((artist, index, self) =>
-          index === self.findIndex(a => a.name === artist.name)
-        ).slice(0, 15);
-
-        setSearchResults(uniqueArtists);
+        console.log('Extracted artists:', sortedArtists);
+        setSearchResults(sortedArtists);
       } else {
         setSearchResults([]);
       }
@@ -310,7 +324,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
                     type="text"
-                    placeholder="Search for artists..."
+                    placeholder="Search for artists (e.g., Lauren, NF, Drake)..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10 pr-8 py-4 bg-secondary/50 border-border/50 rounded-lg"
@@ -319,7 +333,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                   {searchQuery && (
                     <button
                       onClick={() => setSearchQuery('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 hover:bg-muted rounded-full p-1"
                     >
                       <X className="w-4 h-4 text-muted-foreground" />
                     </button>
@@ -356,9 +370,9 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                         className="px-2 py-1 bg-primary/10 text-primary rounded-full flex items-center gap-1 text-xs"
                       >
                         <span className="font-medium">{artist.name}</span>
-                        {artist.genre && artist.genre !== 'Artist' && (
-                          <span className="text-[10px] bg-primary/20 px-1 py-0.5 rounded">
-                            {artist.genre}
+                        {artist.verified && (
+                          <span className="text-[10px] bg-blue-500/20 text-blue-500 px-1 py-0.5 rounded">
+                            ✓
                           </span>
                         )}
                         <button
@@ -375,7 +389,12 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
               {/* Search Results */}
               {searchQuery && (
-                <div className="mb-4">
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="mb-4"
+                >
                   <div className="flex justify-between items-center mb-2">
                     <h3 className="text-sm font-medium text-foreground">
                       {isSearching ? 'Searching...' : `Search Results (${searchResults.length})`}
@@ -399,6 +418,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                   {isSearching ? (
                     <div className="flex justify-center items-center py-4">
                       <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                      <span className="ml-2 text-sm text-muted-foreground">Searching artists...</span>
                     </div>
                   ) : searchResults.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
@@ -422,16 +442,21 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                               <Plus className="w-3 h-3" />
                             )}
                             <span className="font-medium">{artist.name}</span>
+                            {artist.verified && (
+                              <span className="text-xs text-blue-500">✓</span>
+                            )}
                           </motion.button>
                         );
                       })}
                     </div>
                   ) : searchQuery.length >= 2 ? (
                     <div className="text-center py-3 text-muted-foreground text-sm">
-                      No artists found for "{searchQuery}"
+                      <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p>No artists found for "{searchQuery}"</p>
+                      <p className="text-xs mt-1">Try a different search term</p>
                     </div>
                   ) : null}
-                </div>
+                </motion.div>
               )}
 
               {/* Suggested Artists */}
@@ -469,19 +494,28 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
               {/* Actions */}
               <div className="flex items-center justify-between pt-4 border-t border-border/50">
-                <div className="text-sm text-muted-foreground">
-                  {selectedArtists.length} selected
-                </div>
+                <Button
+                  variant="ghost"
+                  onClick={() => setStep('name')}
+                  size="sm"
+                >
+                  Back
+                </Button>
                 <div className="flex gap-2">
+                  <div className="text-sm text-muted-foreground flex items-center">
+                    {selectedArtists.length} selected
+                  </div>
                   <Button
                     variant="ghost"
                     onClick={handleComplete}
+                    size="sm"
                   >
                     Skip
                   </Button>
                   <Button
                     onClick={handleComplete}
                     className="gap-2"
+                    size="sm"
                   >
                     <Sparkles className="w-4 h-4" />
                     Continue
