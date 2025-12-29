@@ -1,12 +1,27 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Music2, ChevronRight, Sparkles, User, Search, X } from 'lucide-react';
+import { 
+  Music2, 
+  ChevronRight, 
+  Sparkles, 
+  User, 
+  Search,
+  X,
+  Loader2
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { setUsername, setPreferredArtists, setOnboardingComplete } from '@/lib/storage';
 import { cn } from '@/lib/utils';
+import { useDebounce } from '@/hooks/use-debounce';
 
-const SUGGESTED_ARTISTS = [
+interface Artist {
+  name: string;
+  genre?: string;
+  id?: string;
+}
+
+const SUGGESTED_ARTISTS: Artist[] = [
   { name: "Taylor Swift", genre: "Pop" },
   { name: "Drake", genre: "Hip-Hop" },
   { name: "The Weeknd", genre: "R&B" },
@@ -48,20 +63,88 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [name, setName] = useState('');
   const [selectedArtists, setSelectedArtists] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [customArtists, setCustomArtists] = useState<string[]>([]);
+  const [searchResults, setSearchResults] = useState<Artist[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(true);
+  
+  const debouncedSearch = useDebounce(searchQuery, 500);
 
-  // Filter artists based on search
-  const filteredArtists = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return SUGGESTED_ARTISTS;
+  const searchArtists = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      setShowSuggestions(true);
+      return;
     }
-    
-    const query = searchQuery.toLowerCase();
-    return SUGGESTED_ARTISTS.filter(artist => 
-      artist.name.toLowerCase().includes(query) ||
-      artist.genre.toLowerCase().includes(query)
-    );
-  }, [searchQuery]);
+
+    setIsSearching(true);
+    setShowSuggestions(false);
+
+    try {
+      // First, check if we have local matches
+      const localMatches = SUGGESTED_ARTISTS.filter(artist =>
+        artist.name.toLowerCase().includes(query.toLowerCase())
+      );
+
+      if (localMatches.length > 0) {
+        setSearchResults(localMatches);
+        setIsSearching(false);
+        return;
+      }
+
+      // Try to fetch from the YouTube Music API
+      const response = await fetch(
+        `https://yt.omada.cafe/api/v1/search?q=${encodeURIComponent(query + " artist")}&filter=artists`
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data && data.content) {
+          // Extract artist names from search results
+          const artistsFromAPI: Artist[] = data.content
+            .filter((item: any) => item.type === 'artist' || item.category === 'Artist')
+            .map((item: any) => ({
+              name: item.title || item.name,
+              genre: item.category || 'Artist',
+              id: item.id
+            }))
+            .slice(0, 20); // Limit results
+
+          setSearchResults(artistsFromAPI);
+        } else {
+          // If API returns no results, show popular suggestions
+          setSearchResults([]);
+          setShowSuggestions(true);
+        }
+      } else {
+        // Fallback to local search if API fails
+        const fallbackResults = SUGGESTED_ARTISTS.filter(artist =>
+          artist.name.toLowerCase().includes(query.toLowerCase())
+        );
+        setSearchResults(fallbackResults);
+      }
+    } catch (error) {
+      console.error('Error searching artists:', error);
+      // Fallback to local search on error
+      const fallbackResults = SUGGESTED_ARTISTS.filter(artist =>
+        artist.name.toLowerCase().includes(query.toLowerCase())
+      );
+      setSearchResults(fallbackResults.length > 0 ? fallbackResults : SUGGESTED_ARTISTS.slice(0, 10));
+      setShowSuggestions(true);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (debouncedSearch) {
+      searchArtists(debouncedSearch);
+    } else {
+      setSearchResults([]);
+      setShowSuggestions(true);
+      setIsSearching(false);
+    }
+  }, [debouncedSearch, searchArtists]);
 
   const handleNameSubmit = () => {
     if (name.trim()) {
@@ -70,65 +153,31 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     setStep('artists');
   };
 
-  const toggleArtist = (artist: string) => {
+  const toggleArtist = (artistName: string) => {
     setSelectedArtists(prev =>
-      prev.includes(artist)
-        ? prev.filter(a => a !== artist)
-        : [...prev, artist]
+      prev.includes(artistName)
+        ? prev.filter(a => a !== artistName)
+        : [...prev, artistName]
     );
-  };
-
-  const addCustomArtist = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && searchQuery.trim()) {
-      const artistName = searchQuery.trim();
-      
-      // Check if already exists in suggested artists
-      const existsInSuggested = SUGGESTED_ARTISTS.some(
-        artist => artist.name.toLowerCase() === artistName.toLowerCase()
-      );
-      
-      // Check if already exists in custom artists
-      const existsInCustom = customArtists.some(
-        artist => artist.toLowerCase() === artistName.toLowerCase()
-      );
-      
-      // Check if already selected
-      const alreadySelected = selectedArtists.some(
-        artist => artist.toLowerCase() === artistName.toLowerCase()
-      );
-      
-      if (!existsInSuggested && !existsInCustom && !alreadySelected) {
-        // Add to custom artists
-        setCustomArtists(prev => [...prev, artistName]);
-        // Select it
-        setSelectedArtists(prev => [...prev, artistName]);
-      } else if (!alreadySelected) {
-        // If it exists in suggestions but not selected, select it
-        const existingArtist = SUGGESTED_ARTISTS.find(
-          artist => artist.name.toLowerCase() === artistName.toLowerCase()
-        );
-        if (existingArtist && !selectedArtists.includes(existingArtist.name)) {
-          setSelectedArtists(prev => [...prev, existingArtist.name]);
-        }
-      }
-      
-      // Clear search
+    
+    // Clear search after selection if there's a query
+    if (searchQuery) {
       setSearchQuery('');
+      setShowSuggestions(true);
     }
   };
 
-  const removeCustomArtist = (artist: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setCustomArtists(prev => prev.filter(a => a !== artist));
-    setSelectedArtists(prev => prev.filter(a => a !== artist));
-  };
-
   const handleComplete = () => {
-    // Combine selected artists from suggested and custom
     setPreferredArtists(selectedArtists);
     setOnboardingComplete();
     onComplete();
   };
+
+  const displayedArtists = searchQuery.trim() 
+    ? searchResults
+    : showSuggestions 
+      ? SUGGESTED_ARTISTS
+      : [];
 
   return (
     <motion.div
@@ -184,7 +233,6 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
               <Button
                 onClick={handleNameSubmit}
-                disabled={!name.trim()}
                 className="w-full py-6 text-lg gap-2"
               >
                 Continue
@@ -207,154 +255,150 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="relative z-10 w-full max-w-3xl max-h-[90vh] flex flex-col"
+            className="relative z-10 w-full max-w-3xl"
           >
-            <div className="text-center mb-6">
+            <div className="text-center mb-8">
               <Sparkles className="w-12 h-12 mx-auto mb-4 text-primary" />
               <h1 className="text-2xl font-bold text-foreground mb-2">
                 Tell us which artists you like
               </h1>
-              <p className="text-muted-foreground">
-                Search or browse artists. Press Enter to add custom artists.
+              <p className="text-muted-foreground mb-6">
+                Search for your favorite artists or select from suggestions
               </p>
-            </div>
 
-            {/* Search Bar */}
-            <div className="relative mb-6">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search artists or type a custom artist and press Enter..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={addCustomArtist}
-                className="pl-12 py-5 text-base bg-secondary/50 border-border/50 rounded-xl"
-              />
-            </div>
-
-            {/* Selected Artists Preview */}
-            {selectedArtists.length > 0 && (
-              <div className="mb-6">
-                <h3 className="text-sm font-medium text-muted-foreground mb-2">
-                  Selected Artists ({selectedArtists.length})
-                </h3>
-                <div className="flex flex-wrap gap-2">
-                  {selectedArtists.map(artist => {
-                    // Check if it's a custom artist
-                    const isCustom = customArtists.includes(artist);
-                    return (
-                      <motion.div
-                        key={artist}
-                        initial={{ scale: 0.8, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        className="px-3 py-2 rounded-full bg-primary/20 text-primary border border-primary/30 flex items-center gap-2"
-                      >
-                        {artist}
-                        {isCustom && (
-                          <button
-                            onClick={() => toggleArtist(artist)}
-                            className="w-5 h-5 rounded-full bg-primary/30 flex items-center justify-center hover:bg-primary/50"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        )}
-                      </motion.div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Artist Grid */}
-            <div className="flex-1 overflow-y-auto pr-2 mb-6">
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {/* Custom Artists First */}
-                {customArtists.map((artist) => {
-                  const isSelected = selectedArtists.includes(artist);
-                  return (
-                    <motion.button
-                      key={`custom-${artist}`}
-                      onClick={() => toggleArtist(artist)}
-                      whileTap={{ scale: 0.95 }}
-                      className={cn(
-                        "p-4 rounded-xl border transition-all duration-200 flex flex-col items-start justify-between",
-                        isSelected
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-secondary/50 border-border/50 hover:border-primary/50 hover:bg-secondary"
-                      )}
-                    >
-                      <div className="flex items-start justify-between w-full">
-                        <span className="font-medium text-left break-words">{artist}</span>
-                        <button
-                          onClick={(e) => removeCustomArtist(artist, e)}
-                          className={cn(
-                            "w-6 h-6 rounded-full flex items-center justify-center",
-                            isSelected
-                              ? "bg-primary-foreground/20 hover:bg-primary-foreground/30"
-                              : "bg-secondary hover:bg-secondary/80"
-                          )}
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                      <span className={cn(
-                        "text-xs mt-2 self-start",
-                        isSelected ? "text-primary-foreground/70" : "text-muted-foreground"
-                      )}>
-                        Custom Artist
-                      </span>
-                    </motion.button>
-                  );
-                })}
-
-                {/* Filtered Suggested Artists */}
-                {filteredArtists.map((artist) => {
-                  const isSelected = selectedArtists.includes(artist.name);
-                  return (
-                    <motion.button
-                      key={artist.name}
-                      onClick={() => toggleArtist(artist.name)}
-                      whileTap={{ scale: 0.95 }}
-                      className={cn(
-                        "p-4 rounded-xl border transition-all duration-200 flex flex-col items-start",
-                        isSelected
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-secondary/50 border-border/50 hover:border-primary/50 hover:bg-secondary"
-                      )}
-                    >
-                      <span className="font-medium text-left mb-2 break-words">{artist.name}</span>
-                      <span className={cn(
-                        "text-xs",
-                        isSelected ? "text-primary-foreground/70" : "text-muted-foreground"
-                      )}>
-                        {artist.genre}
-                      </span>
-                    </motion.button>
-                  );
-                })}
-
-                {/* Empty State */}
-                {filteredArtists.length === 0 && customArtists.length === 0 && (
-                  <div className="col-span-3 text-center py-12">
-                    <p className="text-muted-foreground mb-4">
-                      No artists found for "{searchQuery}"
-                    </p>
-                    <p className="text-sm text-muted-foreground/70">
-                      Press Enter to add it as a custom artist
-                    </p>
-                  </div>
+              {/* Search Bar */}
+              <div className="relative max-w-md mx-auto mb-6">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Search for artists..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-12 pr-10 py-6 text-base bg-secondary/50 border-border/50 rounded-xl"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => {
+                      setSearchQuery('');
+                      setShowSuggestions(true);
+                    }}
+                    className="absolute right-4 top-1/2 -translate-y-1/2"
+                  >
+                    <X className="w-5 h-5 text-muted-foreground hover:text-foreground" />
+                  </button>
                 )}
               </div>
             </div>
 
+            {/* Results/Artists Grid */}
+            <div className="mb-8">
+              {isSearching ? (
+                <div className="flex justify-center items-center py-12">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                  <span className="ml-3 text-muted-foreground">Searching artists...</span>
+                </div>
+              ) : (
+                <>
+                  {/* Section Title */}
+                  <div className="flex justify-between items-center mb-4 px-4">
+                    <h2 className="text-lg font-semibold text-foreground">
+                      {searchQuery.trim() 
+                        ? `Search Results for "${searchQuery}"`
+                        : 'Popular Artists'
+                      }
+                    </h2>
+                    {selectedArtists.length > 0 && (
+                      <span className="text-sm text-muted-foreground">
+                        {selectedArtists.length} selected
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Artists Grid */}
+                  <div className="flex flex-wrap justify-center gap-2 max-h-[40vh] overflow-y-auto p-4">
+                    {displayedArtists.length > 0 ? (
+                      displayedArtists.map((artist) => {
+                        const isSelected = selectedArtists.includes(artist.name);
+                        return (
+                          <motion.button
+                            key={`${artist.name}-${artist.id || 'local'}`}
+                            onClick={() => toggleArtist(artist.name)}
+                            whileTap={{ scale: 0.95 }}
+                            className={cn(
+                              "px-4 py-2.5 rounded-full border transition-all duration-200 flex items-center gap-2",
+                              isSelected
+                                ? "bg-primary text-primary-foreground border-primary shadow-lg"
+                                : "bg-secondary/50 border-border/50 hover:border-primary/50 hover:bg-secondary hover:shadow-md"
+                            )}
+                          >
+                            <span className="font-medium">{artist.name}</span>
+                            {artist.genre && (
+                              <span className={cn(
+                                "text-xs px-2 py-0.5 rounded-full",
+                                isSelected 
+                                  ? "bg-primary-foreground/20 text-primary-foreground/90"
+                                  : "bg-muted text-muted-foreground"
+                              )}>
+                                {artist.genre}
+                              </span>
+                            )}
+                          </motion.button>
+                        );
+                      })
+                    ) : searchQuery.trim() ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                        <p>No artists found for "{searchQuery}"</p>
+                        <p className="text-sm mt-1">Try a different search term</p>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Sparkles className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                        <p>Loading popular artists...</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Selected Artists Preview */}
+                  {selectedArtists.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mt-6 border-t pt-6"
+                    >
+                      <h3 className="text-sm font-medium text-muted-foreground mb-3">
+                        Your Selected Artists
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedArtists.map((artist) => (
+                          <div
+                            key={artist}
+                            className="px-3 py-1.5 bg-primary/10 text-primary rounded-full flex items-center gap-2 text-sm"
+                          >
+                            {artist}
+                            <button
+                              onClick={() => toggleArtist(artist)}
+                              className="hover:bg-primary/20 rounded-full p-0.5"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </>
+              )}
+            </div>
+
             {/* Actions */}
-            <div className="flex items-center justify-between pt-4 border-t">
-              <button
+            <div className="flex items-center justify-between border-t pt-6">
+              <Button
+                variant="ghost"
                 onClick={() => setStep('name')}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
-                ← Back
-              </button>
+                Back
+              </Button>
               <div className="flex gap-3">
                 <Button
                   variant="ghost"
@@ -364,13 +408,20 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                 </Button>
                 <Button
                   onClick={handleComplete}
-                  disabled={selectedArtists.length === 0}
                   className="gap-2"
+                  disabled={isSearching}
                 >
-                  <Sparkles className="w-4 h-4" />
-                  {selectedArtists.length > 0 
-                    ? `Continue with ${selectedArtists.length} artist${selectedArtists.length > 1 ? 's' : ''}`
-                    : 'Get Recommendations'}
+                  {isSearching ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Searching...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      Continue with {selectedArtists.length > 0 ? `${selectedArtists.length} artists` : 'no artists'}
+                    </>
+                  )}
                 </Button>
               </div>
             </div>
