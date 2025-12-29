@@ -1,557 +1,95 @@
 import { useState, useEffect } from 'react';
-import { 
-  Play, 
-  Pause, 
-  SkipBack, 
-  SkipForward, 
-  Volume2, 
-  VolumeX,
-  Repeat,
-  Repeat1,
-  Shuffle,
-  Heart,
-  ListMusic,
-  Mic2,
-  Maximize2,
-  Download,
-  MoreVertical,
-  Radio,
-  Settings
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { usePlayerContext } from '@/context/PlayerContext';
-import { Slider } from '@/components/ui/slider';
-import { cn } from '@/lib/utils';
-import { addFavorite, removeFavorite, isFavorite, addToHistory } from '@/lib/storage';
+import { X, Music, Users, Calendar } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { getChannelVideos } from '@/lib/api';
+import { Video } from '@/types/music';
 import { toast } from 'sonner';
 
-function formatTime(seconds: number): string {
-  if (!seconds || isNaN(seconds)) return '0:00';
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
+interface ChannelInfoProps {
+  artistName: string;
+  onClose: () => void;
 }
 
-function getThumbnail(video: { videoThumbnails?: { url: string; width: number }[] }): string {
-  const thumbnail = video.videoThumbnails?.find(t => t.width >= 120) || video.videoThumbnails?.[0];
-  if (!thumbnail) return '';
-  return thumbnail.url.startsWith('//') ? `https:${thumbnail.url}` : thumbnail.url;
-}
-
-interface PlayerProps {
-  onLyricsOpen?: () => void;
-}
-
-export function Player({ onLyricsOpen }: PlayerProps) {
-  const [liked, setLiked] = useState(false);
-  const [showQueue, setShowQueue] = useState(false);
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [autoFetchEnabled, setAutoFetchEnabled] = useState(() => {
-    // Load from localStorage
-    return localStorage.getItem('autoFetchEnabled') === 'true';
-  });
-  
-  const {
-    currentTrack,
-    isPlaying,
-    volume,
-    currentTime,
-    duration,
-    queue,
-    shuffle,
-    repeat,
-    togglePlay,
-    seek,
-    setVolume,
-    playNext,
-    playPrevious,
-    toggleShuffle,
-    toggleRepeat,
-    removeFromQueue,
-    playTrack,
-    // Add this to your PlayerContext if not exists
-    autoFetchUpNext,
-    toggleAutoFetch,
-  } = usePlayerContext();
-
-  // Wavy timeline bar effect
-  const WavyTimelineBar = () => {
-    const bars = 30;
-    return (
-      <div className="flex items-end h-8 gap-[2px]">
-        {Array.from({ length: bars }).map((_, i) => {
-          // Random height for wavy effect
-          const randomHeight = Math.random() * 16 + 4;
-          const isPlayingBar = isPlaying && i < (currentTime / duration) * bars;
-          
-          return (
-            <motion.div
-              key={i}
-              className={cn(
-                "w-1 bg-gradient-to-t from-primary/70 to-primary rounded-full transition-all duration-300",
-                isPlayingBar ? "opacity-100" : "opacity-40"
-              )}
-              style={{ height: `${isPlayingBar ? randomHeight * 1.5 : randomHeight}px` }}
-              animate={
-                isPlaying && isPlayingBar
-                  ? {
-                      height: [
-                        `${randomHeight}px`,
-                        `${randomHeight * 1.5}px`,
-                        `${randomHeight}px`,
-                      ],
-                    }
-                  : {}
-              }
-              transition={{
-                duration: 0.8,
-                repeat: Infinity,
-                delay: i * 0.05,
-                ease: "easeInOut",
-              }}
-            />
-          );
-        })}
-      </div>
-    );
-  };
+export function ChannelInfo({ artistName, onClose }: ChannelInfoProps) {
+  const [videos, setVideos] = useState<Video[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (currentTrack) {
-      setLiked(isFavorite(currentTrack.videoId));
-      addToHistory(currentTrack);
-    }
-  }, [currentTrack?.videoId]);
-
-  useEffect(() => {
-    localStorage.setItem('autoFetchEnabled', autoFetchEnabled.toString());
-  }, [autoFetchEnabled]);
-
-  const handleLike = () => {
-    if (!currentTrack) return;
-    
-    if (liked) {
-      removeFavorite(currentTrack.videoId);
-      toast.success('Removed from favorites');
-    } else {
-      addFavorite(currentTrack);
-      toast.success('Added to favorites');
-    }
-    setLiked(!liked);
-  };
-
-  const handleDownload = async () => {
-    if (!currentTrack) return;
-    
-    toast.info('Preparing download...');
-    const url = `https://yt.omada.cafe/api/v1/videos/${currentTrack.videoId}?local=true`;
-    
-    try {
-      const response = await fetch(url);
-      const data = await response.json();
-      
-      const audioFormat = data.adaptiveFormats?.find((f: any) => f.type?.startsWith('audio/'));
-      if (audioFormat?.url) {
-        // Create a hidden iframe to trigger download without opening new page
-        const iframe = document.createElement('iframe');
-        iframe.style.display = 'none';
-        iframe.src = audioFormat.url;
-        document.body.appendChild(iframe);
-        
-        // Also provide direct download as fallback
-        const a = document.createElement('a');
-        a.href = audioFormat.url;
-        a.download = `${currentTrack.title}.mp3`;
-        a.target = '_self'; // Use _self instead of _blank
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        
-        // Remove iframe after download
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-        }, 1000);
-        
-        toast.success('Download started');
-      } else {
-        toast.error('Download not available');
+    const fetchChannelData = async () => {
+      try {
+        const data = await getChannelVideos(artistName);
+        setVideos(data);
+      } catch (error) {
+        toast.error('Failed to load channel data');
+      } finally {
+        setLoading(false);
       }
-    } catch {
-      toast.error('Download failed');
-    }
-  };
-
-  const handleAutoFetchToggle = () => {
-    const newState = !autoFetchEnabled;
-    setAutoFetchEnabled(newState);
-    if (toggleAutoFetch) {
-      toggleAutoFetch(newState);
-    }
-    toast.success(`Auto-fetch ${newState ? 'enabled' : 'disabled'}`);
-  };
-
-  const handleShare = () => {
-    if (!currentTrack) return;
-    
-    const shareData = {
-      title: currentTrack.title,
-      text: `Listen to ${currentTrack.title} by ${currentTrack.author}`,
-      url: `https://youtu.be/${currentTrack.videoId}`,
     };
-    
-    if (navigator.share) {
-      navigator.share(shareData).catch(console.error);
-    } else {
-      navigator.clipboard.writeText(shareData.url);
-      toast.success('Link copied to clipboard');
-    }
-    setShowMoreMenu(false);
-  };
 
-  const handleTrackInfo = () => {
-    if (!currentTrack) return;
-    
-    toast.info(`Track Info: ${currentTrack.title}`, {
-      description: `Artist: ${currentTrack.author}\nDuration: ${formatTime(duration)}`,
-      duration: 3000,
-    });
-    setShowMoreMenu(false);
-  };
-
-  const handleArtistClick = (e: React.MouseEvent, artistName: string) => {
-    e.stopPropagation();
-    // You'll need to implement this function based on your app's routing
-    // For example, if using react-router:
-    // navigate(`/artist/${encodeURIComponent(artistName)}`);
-    
-    // For now, we'll open YouTube search
-    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(artistName)}`;
-    window.open(searchUrl, '_blank');
-    
-    toast.info(`Searching for ${artistName}...`);
-  };
-
-  if (!currentTrack) {
-    return (
-      <div className="player-glass h-20 flex items-center justify-center text-muted-foreground text-sm">
-        <Mic2 className="w-5 h-5 mr-2 opacity-50" />
-        Select a track to start playing
-      </div>
-    );
-  }
-
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+    fetchChannelData();
+  }, [artistName]);
 
   return (
-    <>
-      {/* More Menu */}
-      <AnimatePresence>
-        {showMoreMenu && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="fixed bottom-28 right-4 z-50 w-56 glass rounded-xl p-2 shadow-2xl border border-border"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="space-y-1">
-              <button
-                onClick={handleShare}
-                className="w-full flex items-center gap-2 p-2 text-sm hover:bg-accent rounded-lg transition-colors"
-              >
-                <span className="w-5 h-5 flex items-center justify-center">↗</span>
-                Share
-              </button>
-              <button
-                onClick={handleTrackInfo}
-                className="w-full flex items-center gap-2 p-2 text-sm hover:bg-accent rounded-lg transition-colors"
-              >
-                <span className="w-5 h-5 flex items-center justify-center">ⓘ</span>
-                Track Info
-              </button>
-              <button
-                onClick={() => {
-                  // Add to playlist functionality
-                  toast.info('Add to playlist feature');
-                  setShowMoreMenu(false);
-                }}
-                className="w-full flex items-center gap-2 p-2 text-sm hover:bg-accent rounded-lg transition-colors"
-              >
-                <span className="w-5 h-5 flex items-center justify-center">+</span>
-                Add to Playlist
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Queue Panel */}
-      <AnimatePresence>
-        {showQueue && (
-          <motion.div
-            initial={{ opacity: 0, y: 100 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 100 }}
-            className="fixed bottom-24 right-4 z-40 w-80 max-h-96 glass rounded-2xl p-4 shadow-2xl border border-border overflow-hidden"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-foreground">Up Next</h3>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleAutoFetchToggle}
-                  className={cn(
-                    "flex items-center gap-1 p-1.5 text-xs rounded-lg transition-colors",
-                    autoFetchEnabled
-                      ? "bg-primary/20 text-primary"
-                      : "bg-accent text-muted-foreground hover:text-foreground"
-                  )}
-                  title="Auto-fetch similar songs"
-                >
-                  <Radio className="w-3 h-3" />
-                  Auto
-                </button>
-                <span className="text-xs text-muted-foreground">{queue.length} tracks</span>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.9, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        className="relative w-full max-w-2xl max-h-[80vh] bg-background rounded-xl shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-2xl font-bold">{artistName}</h2>
+              <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <Music className="w-4 h-4" />
+                  {videos.length} tracks
+                </span>
+                <span className="flex items-center gap-1">
+                  <Users className="w-4 h-4" />
+                  Channel
+                </span>
               </div>
             </div>
-            <div className="overflow-y-auto max-h-72 space-y-2">
-              {queue.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">Queue is empty</p>
-              ) : (
-                queue.map((track, index) => (
-                  <div
-                    key={`${track.videoId}-${index}`}
-                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-accent cursor-pointer group"
-                    onClick={() => playTrack(track)}
-                  >
-                    <img
-                      src={getThumbnail(track)}
-                      alt={track.title}
-                      className="w-10 h-10 rounded object-cover"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{track.title}</p>
-                      <button
-                        onClick={(e) => handleArtistClick(e, track.author)}
-                        className="text-xs text-muted-foreground truncate hover:text-primary transition-colors text-left"
-                      >
-                        {track.author}
-                      </button>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeFromQueue(index);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-secondary rounded transition-all"
-                    >
-                      <span className="text-xs text-muted-foreground">✕</span>
-                    </button>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-accent rounded-full"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Channel content goes here */}
+          <div className="space-y-3 overflow-y-auto max-h-[60vh]">
+            {loading ? (
+              <div className="text-center py-8">Loading...</div>
+            ) : (
+              videos.map((video) => (
+                <div key={video.videoId} className="flex items-center gap-3 p-3 hover:bg-accent rounded-lg">
+                  <img 
+                    src={video.videoThumbnails?.[0]?.url} 
+                    alt={video.title}
+                    className="w-12 h-12 rounded"
+                  />
+                  <div>
+                    <p className="font-medium">{video.title}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {video.publishedText}
+                    </p>
                   </div>
-                ))
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Player Bar */}
-      <div className="player-glass h-24 px-4 flex items-center gap-4 relative z-50">
-        {/* Track Info with Artist Link */}
-        <div className="flex items-center gap-3 w-[300px] min-w-0">
-          <div className="relative w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 shadow-lg group">
-            <img
-              src={getThumbnail(currentTrack)}
-              alt={currentTrack.title}
-              className={cn(
-                "w-full h-full object-cover transition-transform duration-300",
-                isPlaying && "group-hover:scale-110"
-              )}
-            />
-            {isPlaying && (
-              <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                <WavyTimelineBar />
-              </div>
+                </div>
+              ))
             )}
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-foreground truncate">
-              {currentTrack.title}
-            </p>
-            <button
-              onClick={(e) => handleArtistClick(e, currentTrack.author)}
-              className="text-xs text-muted-foreground truncate hover:text-primary transition-colors text-left"
-            >
-              {currentTrack.author}
-            </button>
-          </div>
-          <button 
-            onClick={handleLike}
-            className="p-2 hover:bg-accent rounded-full transition-colors"
-          >
-            <Heart className={cn(
-              "w-4 h-4 transition-colors",
-              liked ? "text-primary fill-primary" : "text-muted-foreground hover:text-primary"
-            )} />
-          </button>
         </div>
-
-        {/* Player Controls with Wavy Timeline */}
-        <div className="flex-1 flex flex-col items-center gap-2 max-w-2xl">
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={toggleShuffle}
-              className={cn(
-                "p-2 rounded-full transition-colors",
-                shuffle ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-accent"
-              )}
-            >
-              <Shuffle className="w-4 h-4" />
-            </button>
-            <button 
-              onClick={playPrevious}
-              className="p-2 hover:bg-accent rounded-full transition-colors"
-            >
-              <SkipBack className="w-5 h-5 text-foreground fill-current" />
-            </button>
-            <button
-              onClick={togglePlay}
-              className="w-11 h-11 rounded-full bg-foreground flex items-center justify-center hover:scale-105 transition-transform shadow-lg"
-            >
-              {isPlaying ? (
-                <Pause className="w-5 h-5 text-background fill-current" />
-              ) : (
-                <Play className="w-5 h-5 text-background fill-current ml-0.5" />
-              )}
-            </button>
-            <button 
-              onClick={playNext}
-              className="p-2 hover:bg-accent rounded-full transition-colors"
-            >
-              <SkipForward className="w-5 h-5 text-foreground fill-current" />
-            </button>
-            <button 
-              onClick={toggleRepeat}
-              className={cn(
-                "p-2 rounded-full transition-colors",
-                repeat !== 'off' ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-accent"
-              )}
-            >
-              {repeat === 'one' ? (
-                <Repeat1 className="w-4 h-4" />
-              ) : (
-                <Repeat className="w-4 h-4" />
-              )}
-            </button>
-          </div>
-
-          {/* Progress Bar with Wavy Effect */}
-          <div className="w-full flex items-center gap-2">
-            <span className="text-xs text-muted-foreground w-10 text-right font-medium">
-              {formatTime(currentTime)}
-            </span>
-            <div className="flex-1 flex items-center">
-              <div 
-                className="progress-track flex-1 relative"
-                onClick={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const percent = (e.clientX - rect.left) / rect.width;
-                  seek(percent * duration);
-                }}
-              >
-                <div 
-                  className="progress-fill" 
-                  style={{ width: `${progress}%` }}
-                />
-                {/* Wavy effect overlay */}
-                {isPlaying && (
-                  <div className="absolute inset-0 overflow-hidden">
-                    <div className="absolute inset-0 wavy-overlay opacity-20" />
-                  </div>
-                )}
-              </div>
-              {/* Wavy timeline bar indicator */}
-              <div className="ml-2">
-                <WavyTimelineBar />
-              </div>
-            </div>
-            <span className="text-xs text-muted-foreground w-10 font-medium">
-              {formatTime(duration)}
-            </span>
-          </div>
-        </div>
-
-        {/* Right Controls */}
-        <div className="flex items-center gap-2 w-[280px] justify-end">
-          {/* Auto-fetch Toggle */}
-          <button
-            onClick={handleAutoFetchToggle}
-            className={cn(
-              "p-2 rounded-full transition-colors",
-              autoFetchEnabled
-                ? "text-primary bg-primary/10"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent"
-            )}
-            title="Auto-fetch similar songs"
-          >
-            <Radio className="w-4 h-4" />
-          </button>
-          
-          <button 
-            onClick={onLyricsOpen}
-            className="p-2 hover:bg-accent rounded-full transition-colors"
-            title="Full-screen lyrics"
-          >
-            <Maximize2 className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-          </button>
-          <button 
-            onClick={handleDownload}
-            className="p-2 hover:bg-accent rounded-full transition-colors"
-            title="Download"
-          >
-            <Download className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-          </button>
-          <button 
-            onClick={() => setShowQueue(!showQueue)}
-            className={cn(
-              "p-2 rounded-full transition-colors",
-              showQueue ? "bg-accent text-primary" : "hover:bg-accent"
-            )}
-          >
-            <ListMusic className="w-4 h-4 text-muted-foreground" />
-          </button>
-          {/* More Menu Button */}
-          <div className="relative">
-            <button
-              onClick={() => setShowMoreMenu(!showMoreMenu)}
-              className={cn(
-                "p-2 rounded-full transition-colors",
-                showMoreMenu ? "bg-accent text-primary" : "hover:bg-accent"
-              )}
-            >
-              <MoreVertical className="w-4 h-4 text-muted-foreground" />
-            </button>
-          </div>
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setVolume(volume === 0 ? 0.7 : 0)}
-              className="p-1"
-            >
-              {volume === 0 ? (
-                <VolumeX className="w-4 h-4 text-muted-foreground" />
-              ) : (
-                <Volume2 className="w-4 h-4 text-muted-foreground" />
-              )}
-            </button>
-            <Slider
-              value={[volume * 100]}
-              max={100}
-              step={1}
-              className="w-24"
-              onValueChange={([value]) => setVolume(value / 100)}
-            />
-          </div>
-        </div>
-      </div>
-    </>
+      </motion.div>
+    </motion.div>
   );
 }
