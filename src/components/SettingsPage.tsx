@@ -21,7 +21,14 @@ import {
   AlertCircle,
   RefreshCw,
   Smartphone,
-  VolumeX
+  VolumeX,
+  Upload,
+  Play,
+  Clock,
+  BarChart3,
+  Music,
+  Radio,
+  Settings as SettingsIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,9 +42,9 @@ import {
   getUsername, 
   setUsername, 
   getPreferredArtists,
-  setPreferredArtists,
   addPreferredArtist,
   removePreferredArtist,
+  setPreferredArtists,
   clearUserData,
   getStats,
   getDownloads,
@@ -46,7 +53,9 @@ import {
   getRecommendationWeights,
   exportPreferences,
   UserSettings,
-  ArtistData
+  ArtistData,
+  getHistory,
+  getFavorites
 } from '@/lib/storage';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -61,24 +70,35 @@ type ThemeMode = 'dynamic' | 'dark' | 'light';
 type DownloadQuality = 'low' | 'medium' | 'high';
 
 export function SettingsPage({ onBack }: SettingsPageProps) {
+  // Load all data from storage
   const [settings, setSettings] = useState<UserSettings>(getSettings());
   const [name, setName] = useState(getUsername() || '');
   const [selectedArtists, setSelectedArtists] = useState<ArtistData[]>(getPreferredArtists());
-  const [editingArtist, setEditingArtist] = useState<string | null>(null);
   const [newArtistName, setNewArtistName] = useState('');
   const [isAddingArtist, setIsAddingArtist] = useState(false);
   const [stats, setStats] = useState(getStats());
   const [downloads, setDownloads] = useState(getDownloads());
   const [greeting] = useState(getPersonalizedGreeting());
-  const [recommendationWeights] = useState(getRecommendationWeights());
+  const [recommendationWeights, setRecommendationWeights] = useState(getRecommendationWeights());
+  const [history, setHistory] = useState(getHistory());
+  const [favorites, setFavorites] = useState(getFavorites());
 
-  // Refresh data periodically
+  // Refresh data when settings change
+  useEffect(() => {
+    const updatedSettings = getSettings();
+    setSettings(updatedSettings);
+    setRecommendationWeights(getRecommendationWeights());
+  }, [settings]);
+
+  // Refresh other data periodically
   useEffect(() => {
     const interval = setInterval(() => {
       setStats(getStats());
       setDownloads(getDownloads());
       setSelectedArtists(getPreferredArtists());
-    }, 5000);
+      setHistory(getHistory());
+      setFavorites(getFavorites());
+    }, 3000);
 
     return () => clearInterval(interval);
   }, []);
@@ -105,7 +125,10 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       return;
     }
 
-    const artistExists = selectedArtists.some(a => a.name.toLowerCase() === newArtistName.toLowerCase());
+    const artistExists = selectedArtists.some(a => 
+      a.name.toLowerCase() === newArtistName.toLowerCase().trim()
+    );
+    
     if (artistExists) {
       toast.error('Artist already exists');
       return;
@@ -122,13 +145,13 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     setSelectedArtists(getPreferredArtists());
     setNewArtistName('');
     setIsAddingArtist(false);
-    toast.success(`Added ${newArtistName}`);
+    toast.success(`Added "${newArtistName.trim()}"`);
   };
 
   const handleRemoveArtist = (artistName: string) => {
     removePreferredArtist(artistName);
     setSelectedArtists(getPreferredArtists());
-    toast.success(`Removed ${artistName}`);
+    toast.success(`Removed "${artistName}"`);
   };
 
   const handleClearAllArtists = () => {
@@ -145,68 +168,92 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   };
 
   const handleClearHistory = () => {
+    if (history.length === 0) {
+      toast.info('No history to clear');
+      return;
+    }
+
     if (confirm('Are you sure you want to clear your listening history?')) {
       clearHistory();
+      setHistory(getHistory());
       setStats(getStats());
       toast.success('History cleared');
     }
   };
 
   const handleClearAllData = () => {
-    if (confirm('Are you sure you want to clear ALL your data? This cannot be undone!')) {
+    if (confirm('⚠️ ARE YOU SURE?\n\nThis will delete ALL your data:\n• Favorite artists\n• Listening history\n• Play counts\n• Settings\n• Username\n\nThis action cannot be undone!')) {
       clearUserData();
       setSettings(getSettings());
       setSelectedArtists([]);
       setName('');
       setStats(getStats());
-      toast.success('All data cleared');
+      setDownloads([]);
+      setHistory([]);
+      setFavorites([]);
+      toast.success('All data cleared. Page will refresh.');
+      setTimeout(() => window.location.reload(), 1000);
     }
   };
 
   const handleExportData = () => {
-    const data = exportPreferences();
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `c-music-backup-${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast.success('Preferences exported');
+    try {
+      const data = exportPreferences();
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `c-music-backup-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('Backup exported successfully');
+    } catch (error) {
+      toast.error('Failed to export backup');
+    }
   };
 
   const handleImportData = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    if (!confirm('Import will overwrite your current settings. Continue?')) {
+      event.target.value = '';
+      return;
+    }
+
     try {
       const text = await file.text();
       const data = JSON.parse(text);
       
       // Validate and apply imported data
-      if (data.username) setUsername(data.username);
-      if (data.preferredArtists) setPreferredArtists(data.preferredArtists);
-      if (data.settings) saveSettings(data.settings);
+      if (data.username && typeof data.username === 'string') {
+        setUsername(data.username);
+        setName(data.username);
+      }
       
-      // Refresh all data
-      setName(getUsername() || '');
-      setSelectedArtists(getPreferredArtists());
-      setSettings(getSettings());
+      if (data.preferredArtists && Array.isArray(data.preferredArtists)) {
+        setPreferredArtists(data.preferredArtists);
+        setSelectedArtists(data.preferredArtists);
+      }
       
-      toast.success('Preferences imported successfully');
+      if (data.settings && typeof data.settings === 'object') {
+        saveSettings(data.settings);
+        setSettings(getSettings());
+      }
+      
+      toast.success('Backup imported successfully');
     } catch (error) {
-      toast.error('Failed to import preferences');
+      toast.error('Invalid backup file format');
     }
 
-    // Reset file input
     event.target.value = '';
   };
 
   const handleResetSettings = () => {
-    if (confirm('Reset all settings to default?')) {
-      saveSettings({
+    if (confirm('Reset all settings to default values?')) {
+      const defaultSettings: UserSettings = {
         theme: 'dynamic',
         dynamicThemeIntensity: 0.5,
         autoPlay: true,
@@ -215,16 +262,25 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         downloadQuality: 'high',
         recommendationAlgorithm: 'personalized',
         defaultQuickPickMode: 'mashup'
-      });
-      setSettings(getSettings());
+      };
+      
+      saveSettings(defaultSettings);
+      setSettings(defaultSettings);
       toast.success('Settings reset to default');
     }
   };
 
+  // Calculate stats
   const downloadCount = downloads.length;
-  const totalPlayTime = Math.floor(stats.totalPlays * 3.5); // Average 3.5 minutes per song
-  const hours = Math.floor(totalPlayTime / 60);
-  const minutes = totalPlayTime % 60;
+  const favoriteCount = favorites.length;
+  const historyCount = history.length;
+  const artistCount = selectedArtists.length;
+  const totalPlays = stats.totalPlays;
+  
+  // Calculate listening time (assuming 3.5 minutes per song)
+  const totalMinutes = Math.floor(totalPlays * 3.5);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
 
   return (
     <div className="min-h-full space-y-8 pb-20">
@@ -235,54 +291,103 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <SettingsIcon className="w-6 h-6 text-primary" />
+              Settings
+            </h1>
             <p className="text-sm text-muted-foreground">{greeting}</p>
           </div>
         </div>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={handleResetSettings}
-          className="gap-2"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Reset Defaults
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleExportData}
+            className="gap-2"
+          >
+            <Download className="w-4 h-4" />
+            Export
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleResetSettings}
+            className="gap-2"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Reset
+          </Button>
+        </div>
       </div>
 
-      <div className="grid gap-6 max-w-2xl">
+      <div className="grid gap-6">
         {/* Stats Overview */}
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="glass rounded-2xl p-6"
         >
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <Sparkles className="w-5 h-5 text-primary" />
-              <h2 className="text-lg font-semibold">Your Stats</h2>
+              <BarChart3 className="w-5 h-5 text-primary" />
+              <h2 className="text-lg font-semibold">Your Music Stats</h2>
             </div>
-            <span className="text-xs text-muted-foreground">
-              Updated just now
-            </span>
+            <div className="text-xs text-muted-foreground px-3 py-1 bg-primary/10 rounded-full">
+              Live
+            </div>
           </div>
           
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-primary/5 rounded-lg p-4">
-              <div className="text-2xl font-bold text-primary">{stats.totalPlays}</div>
+              <div className="flex items-center gap-2 mb-2">
+                <Play className="w-4 h-4 text-primary" />
+                <div className="text-2xl font-bold text-primary">{totalPlays}</div>
+              </div>
               <div className="text-sm text-muted-foreground">Total Plays</div>
             </div>
+            
             <div className="bg-primary/5 rounded-lg p-4">
-              <div className="text-2xl font-bold text-primary">{hours}h {minutes}m</div>
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="w-4 h-4 text-primary" />
+                <div className="text-2xl font-bold text-primary">{hours}h {minutes}m</div>
+              </div>
               <div className="text-sm text-muted-foreground">Listening Time</div>
             </div>
+            
             <div className="bg-primary/5 rounded-lg p-4">
-              <div className="text-2xl font-bold text-primary">{selectedArtists.length}</div>
+              <div className="flex items-center gap-2 mb-2">
+                <Heart className="w-4 h-4 text-primary" />
+                <div className="text-2xl font-bold text-primary">{artistCount}</div>
+              </div>
               <div className="text-sm text-muted-foreground">Favorite Artists</div>
             </div>
+            
             <div className="bg-primary/5 rounded-lg p-4">
-              <div className="text-2xl font-bold text-primary">{downloadCount}</div>
+              <div className="flex items-center gap-2 mb-2">
+                <Download className="w-4 h-4 text-primary" />
+                <div className="text-2xl font-bold text-primary">{downloadCount}</div>
+              </div>
               <div className="text-sm text-muted-foreground">Downloads</div>
+            </div>
+          </div>
+
+          <Separator className="my-6 bg-border/50" />
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-primary/5 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Music className="w-4 h-4 text-primary" />
+                <div className="text-2xl font-bold text-primary">{favoriteCount}</div>
+              </div>
+              <div className="text-sm text-muted-foreground">Favorite Songs</div>
+            </div>
+            
+            <div className="bg-primary/5 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Radio className="w-4 h-4 text-primary" />
+                <div className="text-2xl font-bold text-primary">{historyCount}</div>
+              </div>
+              <div className="text-sm text-muted-foreground">Recent Plays</div>
             </div>
           </div>
         </motion.section>
@@ -306,26 +411,32 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Enter your name"
                 className="flex-1"
+                onKeyDown={(e) => e.key === 'Enter' && handleSaveName()}
               />
-              <Button onClick={handleSaveName} size="sm" className="gap-2">
+              <Button 
+                onClick={handleSaveName} 
+                size="sm" 
+                className="gap-2"
+                disabled={!name.trim()}
+              >
                 <Save className="w-4 h-4" />
                 Save
               </Button>
             </div>
             <p className="text-sm text-muted-foreground">
-              This name appears in your personalized greetings
+              Your name appears in greetings and personalization
             </p>
           </div>
         </motion.section>
 
-        {/* Theme Section */}
+        {/* Appearance Section */}
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
           className="glass rounded-2xl p-6"
         >
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 mb-6">
             <Palette className="w-5 h-5 text-primary" />
             <h2 className="text-lg font-semibold">Appearance</h2>
           </div>
@@ -333,33 +444,38 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           <div className="space-y-6">
             {/* Theme Selection */}
             <div>
-              <Label className="text-foreground mb-2 block">Theme</Label>
+              <Label className="text-foreground mb-3 block">Theme Mode</Label>
               <div className="flex gap-2">
                 {(['dynamic', 'dark', 'light'] as ThemeMode[]).map((theme) => (
                   <button
                     key={theme}
                     onClick={() => updateSettings({ theme })}
                     className={cn(
-                      "flex-1 px-4 py-2 rounded-lg text-sm capitalize transition-all flex items-center justify-center gap-2",
+                      "flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-all flex flex-col items-center justify-center gap-2",
                       settings.theme === theme
                         ? "bg-primary text-primary-foreground"
                         : "bg-secondary hover:bg-accent"
                     )}
                   >
-                    {theme === 'dynamic' && <Sparkles className="w-4 h-4" />}
-                    {theme === 'dark' && <Moon className="w-4 h-4" />}
-                    {theme === 'light' && <Sun className="w-4 h-4" />}
-                    {theme}
+                    {theme === 'dynamic' && <Sparkles className="w-5 h-5" />}
+                    {theme === 'dark' && <Moon className="w-5 h-5" />}
+                    {theme === 'light' && <Sun className="w-5 h-5" />}
+                    <span className="capitalize">{theme}</span>
                   </button>
                 ))}
               </div>
             </div>
 
             {settings.theme === 'dynamic' && (
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <Label>Dynamic Intensity</Label>
-                  <span className="text-sm text-muted-foreground">
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <Label className="text-foreground">Dynamic Intensity</Label>
+                    <p className="text-sm text-muted-foreground">
+                      How strongly colors adapt to album art
+                    </p>
+                  </div>
+                  <span className="text-sm font-medium text-primary">
                     {Math.round(settings.dynamicThemeIntensity * 100)}%
                   </span>
                 </div>
@@ -368,10 +484,12 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                   onValueChange={([v]) => updateSettings({ dynamicThemeIntensity: v / 100 })}
                   max={100}
                   step={5}
+                  className="w-full"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Adjusts how strongly the theme adapts to album artwork
-                </p>
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Subtle</span>
+                  <span>Vibrant</span>
+                </div>
               </div>
             )}
           </div>
@@ -384,17 +502,19 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           transition={{ delay: 0.3 }}
           className="glass rounded-2xl p-6"
         >
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 mb-6">
             <Music2 className="w-5 h-5 text-primary" />
             <h2 className="text-lg font-semibold">Playback</h2>
           </div>
           
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between p-3 rounded-lg hover:bg-accent/50 transition-colors">
               <div className="flex items-center gap-3">
-                <Volume2 className="w-4 h-4 text-muted-foreground" />
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Volume2 className="w-4 h-4 text-primary" />
+                </div>
                 <div>
-                  <Label className="text-foreground">Auto-play</Label>
+                  <Label className="text-foreground cursor-pointer">Auto-play</Label>
                   <p className="text-sm text-muted-foreground">
                     Automatically play similar tracks
                   </p>
@@ -406,13 +526,13 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               />
             </div>
 
-            <Separator className="bg-border/50" />
-
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between p-3 rounded-lg hover:bg-accent/50 transition-colors">
               <div className="flex items-center gap-3">
-                <Smartphone className="w-4 h-4 text-muted-foreground" />
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Smartphone className="w-4 h-4 text-primary" />
+                </div>
                 <div>
-                  <Label className="text-foreground">Crossfade</Label>
+                  <Label className="text-foreground cursor-pointer">Crossfade</Label>
                   <p className="text-sm text-muted-foreground">
                     Smooth transitions between tracks
                   </p>
@@ -424,13 +544,13 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               />
             </div>
 
-            <Separator className="bg-border/50" />
-
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between p-3 rounded-lg hover:bg-accent/50 transition-colors">
               <div className="flex items-center gap-3">
-                <VolumeX className="w-4 h-4 text-muted-foreground" />
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                  <VolumeX className="w-4 h-4 text-primary" />
+                </div>
                 <div>
-                  <Label className="text-foreground">Show Lyrics</Label>
+                  <Label className="text-foreground cursor-pointer">Show Lyrics</Label>
                   <p className="text-sm text-muted-foreground">
                     Display lyrics when available
                   </p>
@@ -444,67 +564,91 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           </div>
         </motion.section>
 
-        {/* Algorithm Section */}
+        {/* Recommendations Section */}
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
           className="glass rounded-2xl p-6"
         >
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 mb-6">
             <Sparkles className="w-5 h-5 text-primary" />
             <h2 className="text-lg font-semibold">Recommendations</h2>
           </div>
           
           <div className="space-y-6">
             {/* Algorithm Preference */}
-            <div>
-              <Label className="text-foreground mb-2 block">Recommendation Style</Label>
-              <div className="flex gap-2">
-                {(['personalized', 'mixed', 'exploration'] as RecommendationAlgorithm[]).map((algo) => (
+            <div className="space-y-3">
+              <Label className="text-foreground">Recommendation Style</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { value: 'personalized', label: 'Personalized', desc: 'Based on your taste' },
+                  { value: 'mixed', label: 'Mixed', desc: 'Balance of favorites & new' },
+                  { value: 'exploration', label: 'Discovery', desc: 'Find new artists' }
+                ] as const).map(({ value, label, desc }) => (
                   <button
-                    key={algo}
-                    onClick={() => updateSettings({ recommendationAlgorithm: algo })}
+                    key={value}
+                    onClick={() => updateSettings({ recommendationAlgorithm: value })}
                     className={cn(
-                      "flex-1 px-4 py-2 rounded-lg text-sm capitalize transition-all",
-                      settings.recommendationAlgorithm === algo
+                      "p-3 rounded-lg text-sm transition-all flex flex-col items-center text-center",
+                      settings.recommendationAlgorithm === value
                         ? "bg-primary text-primary-foreground"
                         : "bg-secondary hover:bg-accent"
                     )}
                   >
-                    {algo === 'personalized' && 'Personalized'}
-                    {algo === 'mixed' && 'Mixed'}
-                    {algo === 'exploration' && 'Discovery'}
+                    <span className="font-medium">{label}</span>
+                    <span className="text-xs opacity-80 mt-1">{desc}</span>
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Current weights: Artists ({Math.round(recommendationWeights.artistWeight * 100)}%), 
-                History ({Math.round(recommendationWeights.historyWeight * 100)}%), 
-                Stats ({Math.round(recommendationWeights.statsWeight * 100)}%)
-              </p>
+              
+              {/* Current Weights */}
+              <div className="bg-primary/5 rounded-lg p-3 mt-2">
+                <div className="text-xs text-muted-foreground mb-1">Current weights:</div>
+                <div className="grid grid-cols-4 gap-2 text-xs">
+                  <div className="text-center">
+                    <div className="font-medium text-primary">Artists</div>
+                    <div>{Math.round(recommendationWeights.artistWeight * 100)}%</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="font-medium text-primary">History</div>
+                    <div>{Math.round(recommendationWeights.historyWeight * 100)}%</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="font-medium text-primary">Stats</div>
+                    <div>{Math.round(recommendationWeights.statsWeight * 100)}%</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="font-medium text-primary">Explore</div>
+                    <div>{Math.round(recommendationWeights.explorationWeight * 100)}%</div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <Separator className="bg-border/50" />
 
             {/* Quick Picks Mode */}
-            <div>
-              <Label className="text-foreground mb-2 block">Quick Picks Default</Label>
-              <div className="flex gap-2">
-                {(['mashup', 'last-played', 'most-played'] as QuickPickMode[]).map((mode) => (
+            <div className="space-y-3">
+              <Label className="text-foreground">Quick Picks Default</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { value: 'mashup', label: '🎲 Mashup', desc: 'Smart mix' },
+                  { value: 'last-played', label: '▶ Last Played', desc: 'Recently played' },
+                  { value: 'most-played', label: '🔁 Most Played', desc: 'Your favorites' }
+                ] as const).map(({ value, label, desc }) => (
                   <button
-                    key={mode}
-                    onClick={() => updateSettings({ defaultQuickPickMode: mode })}
+                    key={value}
+                    onClick={() => updateSettings({ defaultQuickPickMode: value })}
                     className={cn(
-                      "flex-1 px-4 py-2 rounded-lg text-sm capitalize transition-all",
-                      settings.defaultQuickPickMode === mode
+                      "p-3 rounded-lg text-sm transition-all flex flex-col items-center text-center",
+                      settings.defaultQuickPickMode === value
                         ? "bg-primary text-primary-foreground"
                         : "bg-secondary hover:bg-accent"
                     )}
                   >
-                    {mode === 'mashup' && '🎲 Mashup'}
-                    {mode === 'last-played' && '▶ Last Played'}
-                    {mode === 'most-played' && '🔁 Most Played'}
+                    <span className="font-medium">{label}</span>
+                    <span className="text-xs opacity-80 mt-1">{desc}</span>
                   </button>
                 ))}
               </div>
@@ -513,21 +657,21 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
             <Separator className="bg-border/50" />
 
             {/* Favorite Artists */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
                 <div>
                   <Label className="text-foreground">Favorite Artists</Label>
                   <p className="text-sm text-muted-foreground">
-                    {selectedArtists.length} artists selected
+                    {artistCount} artist{artistCount !== 1 ? 's' : ''} selected
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  {selectedArtists.length > 0 && (
+                  {artistCount > 0 && (
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={handleClearAllArtists}
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8"
                     >
                       Clear All
                     </Button>
@@ -536,23 +680,24 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                     variant="ghost"
                     size="sm"
                     onClick={() => setIsAddingArtist(true)}
-                    className="gap-1"
+                    className="h-8 gap-1"
                   >
                     <Plus className="w-4 h-4" />
-                    Add
+                    Add Artist
                   </Button>
                 </div>
               </div>
 
               {/* Add Artist Input */}
               {isAddingArtist && (
-                <div className="flex gap-2 mb-3">
+                <div className="flex gap-2">
                   <Input
                     value={newArtistName}
                     onChange={(e) => setNewArtistName(e.target.value)}
                     placeholder="Enter artist name"
                     className="flex-1"
                     onKeyDown={(e) => e.key === 'Enter' && handleAddArtist()}
+                    autoFocus
                   />
                   <Button onClick={handleAddArtist} size="sm">
                     Add
@@ -571,35 +716,42 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               )}
 
               {/* Artists List */}
-              {selectedArtists.length === 0 ? (
-                <div className="text-center py-6 text-muted-foreground">
+              {artistCount === 0 ? (
+                <div className="text-center py-6 text-muted-foreground border-2 border-dashed border-border rounded-lg">
                   <Heart className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>No artists selected yet</p>
-                  <p className="text-sm">Add artists to personalize your recommendations</p>
+                  <p>No favorite artists yet</p>
+                  <p className="text-sm mt-1">Add artists to personalize your experience</p>
                 </div>
               ) : (
-                <div className="space-y-2 max-h-60 overflow-y-auto">
+                <div className="max-h-60 overflow-y-auto space-y-2">
                   {selectedArtists.map((artist) => (
                     <div
                       key={artist.name}
-                      className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg hover:bg-secondary transition-colors"
+                      className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg hover:bg-secondary transition-colors group"
                     >
-                      <div>
-                        <div className="font-medium">{artist.name}</div>
-                        {artist.genre && artist.genre !== 'Artist' && (
-                          <div className="text-xs text-muted-foreground">{artist.genre}</div>
-                        )}
-                        {artist.playCount && artist.playCount > 0 && (
-                          <div className="text-xs text-primary">
-                            {artist.playCount} play{artist.playCount !== 1 ? 's' : ''}
-                          </div>
-                        )}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{artist.name}</div>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                          {artist.genre && artist.genre !== 'Artist' && (
+                            <span className="px-2 py-0.5 bg-primary/10 text-primary rounded-full">
+                              {artist.genre}
+                            </span>
+                          )}
+                          {artist.playCount && artist.playCount > 0 && (
+                            <span>{artist.playCount} play{artist.playCount !== 1 ? 's' : ''}</span>
+                          )}
+                          {artist.selectedAt && (
+                            <span>
+                              Added {new Date(artist.selectedAt).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => handleRemoveArtist(artist.name)}
-                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -618,21 +770,21 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           transition={{ delay: 0.5 }}
           className="glass rounded-2xl p-6"
         >
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 mb-6">
             <Download className="w-5 h-5 text-primary" />
             <h2 className="text-lg font-semibold">Downloads</h2>
           </div>
           
           <div className="space-y-4">
             <div>
-              <Label className="text-foreground">Download Quality</Label>
-              <div className="flex gap-2 mt-2">
+              <Label className="text-foreground mb-3 block">Download Quality</Label>
+              <div className="grid grid-cols-3 gap-2">
                 {(['low', 'medium', 'high'] as DownloadQuality[]).map((quality) => (
                   <button
                     key={quality}
                     onClick={() => updateSettings({ downloadQuality: quality })}
                     className={cn(
-                      "flex-1 px-4 py-2 rounded-lg text-sm capitalize transition-all",
+                      "p-3 rounded-lg text-sm font-medium capitalize transition-all",
                       settings.downloadQuality === quality
                         ? "bg-primary text-primary-foreground"
                         : "bg-secondary hover:bg-accent"
@@ -642,61 +794,89 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                {downloadCount} tracks downloaded
-              </p>
+            </div>
+            
+            <div className="bg-primary/5 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">Storage Info</div>
+                  <div className="text-xs text-muted-foreground">
+                    {downloadCount} track{downloadCount !== 1 ? 's' : ''} downloaded
+                  </div>
+                </div>
+                <div className="text-sm font-medium text-primary">
+                  ~{Math.round(downloadCount * 5)} MB
+                </div>
+              </div>
             </div>
           </div>
         </motion.section>
 
-        {/* Data Management Section */}
+        {/* Data Management */}
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.6 }}
-          className="glass rounded-2xl p-6 border border-destructive/20"
+          className="glass rounded-2xl p-6 border border-destructive/20 bg-destructive/5"
         >
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 mb-6">
             <AlertCircle className="w-5 h-5 text-destructive" />
             <h2 className="text-lg font-semibold text-destructive">Data Management</h2>
           </div>
           
           <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Manage your data and preferences. Be careful with destructive actions.
+            </p>
+            
             <div className="grid grid-cols-2 gap-3">
               <Button
                 variant="outline"
                 onClick={handleClearHistory}
-                className="justify-start gap-2"
+                className="justify-start gap-2 h-auto py-3"
+                disabled={historyCount === 0}
               >
                 <Trash2 className="w-4 h-4" />
-                Clear History
+                <div className="text-left">
+                  <div className="font-medium">Clear History</div>
+                  <div className="text-xs text-muted-foreground">{historyCount} items</div>
+                </div>
               </Button>
               
               <Button
                 variant="outline"
                 onClick={handleExportData}
-                className="justify-start gap-2"
+                className="justify-start gap-2 h-auto py-3"
               >
                 <Download className="w-4 h-4" />
-                Export Data
+                <div className="text-left">
+                  <div className="font-medium">Export Data</div>
+                  <div className="text-xs text-muted-foreground">Backup to file</div>
+                </div>
               </Button>
               
               <Button
                 variant="outline"
                 onClick={() => document.getElementById('import-data')?.click()}
-                className="justify-start gap-2"
+                className="justify-start gap-2 h-auto py-3"
               >
                 <Upload className="w-4 h-4" />
-                Import Data
+                <div className="text-left">
+                  <div className="font-medium">Import Data</div>
+                  <div className="text-xs text-muted-foreground">Restore from backup</div>
+                </div>
               </Button>
               
               <Button
                 variant="destructive"
                 onClick={handleClearAllData}
-                className="justify-start gap-2"
+                className="justify-start gap-2 h-auto py-3"
               >
                 <Trash2 className="w-4 h-4" />
-                Clear All Data
+                <div className="text-left">
+                  <div className="font-medium">Clear All Data</div>
+                  <div className="text-xs">⚠️ Irreversible</div>
+                </div>
               </Button>
             </div>
             
@@ -708,9 +888,10 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               className="hidden"
             />
             
-            <p className="text-xs text-muted-foreground">
-              ⚠️ Clearing all data will remove your preferences, history, and favorites.
-            </p>
+            <div className="text-xs text-destructive/80 bg-destructive/10 p-3 rounded-lg">
+              ⚠️ Warning: Clearing all data will permanently delete your preferences, 
+              history, favorites, and statistics. This action cannot be undone.
+            </div>
           </div>
         </motion.section>
 
@@ -721,59 +902,65 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           transition={{ delay: 0.7 }}
           className="glass rounded-2xl p-6"
         >
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 mb-6">
             <Heart className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-semibold">About</h2>
+            <h2 className="text-lg font-semibold">About C-Music</h2>
           </div>
           
           <div className="space-y-4">
-            <div>
-              <h3 className="font-semibold text-gradient">C-Music</h3>
-              <p className="text-sm text-muted-foreground">
-                A modern music streaming experience with personalized recommendations.
-              </p>
-            </div>
-            
-            <Separator className="bg-border/50" />
-            
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Sparkles className="w-4 h-4 text-primary" />
-                </div>
-                <div>
-                  <div className="font-medium">Created by</div>
-                  <div className="text-primary font-semibold">cybrughost</div>
-                </div>
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
+                <Music2 className="w-6 h-6 text-primary-foreground" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gradient text-lg">C-Music</h3>
+                <p className="text-sm text-muted-foreground">
+                  Modern music streaming with AI-powered recommendations
+                </p>
               </div>
             </div>
             
             <Separator className="bg-border/50" />
             
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Version</span>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Version</span>
                 <span className="font-medium">1.0.0</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Last Updated</span>
-                <span className="font-medium">Dec 2024</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Storage Used</span>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Data Size</span>
                 <span className="font-medium">
-                  {Math.round((selectedArtists.length + downloads.length + stats.totalPlays) / 100)} KB
+                  ~{Math.round((artistCount + downloadCount + totalPlays) / 100)} KB
                 </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Last Updated</span>
+                <span className="font-medium">{new Date().toLocaleDateString()}</span>
+              </div>
+            </div>
+            
+            <Separator className="bg-border/50" />
+            
+            <div className="space-y-2">
+              <div className="font-medium">Created by</div>
+              <div className="flex items-center gap-3 p-3 bg-primary/5 rounded-lg">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center">
+                  <Sparkles className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <div className="font-semibold text-primary">cybrughost</div>
+                  <div className="text-sm text-muted-foreground">Developer & Designer</div>
+                </div>
               </div>
             </div>
             
             <Button
               variant="outline"
-              className="w-full gap-2"
+              className="w-full gap-2 mt-4"
               onClick={() => window.open('https://github.com/cybrughost', '_blank')}
             >
               <Github className="w-4 h-4" />
-              GitHub Profile
+              View GitHub Profile
             </Button>
           </div>
         </motion.section>
@@ -781,6 +968,3 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     </div>
   );
 }
-
-// Add missing import for Upload icon
-import { Upload } from 'lucide-react';
