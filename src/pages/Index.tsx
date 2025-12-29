@@ -8,6 +8,7 @@ import { MoodChips } from '@/components/MoodChips';
 import { FullscreenLyrics } from '@/components/lyrics/FullscreenLyrics';
 import { LibraryView } from '@/components/LibraryView';
 import { ExploreView } from '@/components/ExploreView';
+import { RadioPage } from '@/components/radio';
 import { SettingsPage } from '@/components/SettingsPage';
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
 import { useSearch } from '@/hooks/useSearch';
