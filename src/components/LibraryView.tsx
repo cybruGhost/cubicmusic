@@ -1,30 +1,31 @@
-import { useState } from 'react';
-import { Heart, Clock, BarChart3, Trash2, Play, Music2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Heart, Clock, BarChart3, Trash2, Play, Music2, Download } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { UserPlaylist, Video } from '@/types/music';
 import { PlaylistCard } from './playlists/PlaylistCard';
 import { CreatePlaylistDialog } from './playlists/CreatePlaylistDialog';
 import { MusicCard } from './MusicCard';
-import { getFavorites, getHistory, getStats, clearHistory } from '@/lib/storage';
+import { getFavorites, getHistory, getStats, clearHistory, getDownloads } from '@/lib/storage';
+import { getPlaylists } from '@/lib/playlists';
 import { usePlayerContext } from '@/context/PlayerContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
 
-interface LibraryViewProps {
-  playlists: UserPlaylist[];
-  onPlaylistSelect: (playlist: UserPlaylist) => void;
-  onPlaylistsUpdate: () => void;
-}
-
-export function LibraryView({ playlists, onPlaylistSelect, onPlaylistsUpdate }: LibraryViewProps) {
+export function LibraryView() {
   const [activeTab, setActiveTab] = useState('playlists');
+  const [playlists, setPlaylists] = useState<UserPlaylist[]>([]);
   const { playAll } = usePlayerContext();
 
   const favorites = getFavorites();
   const history = getHistory();
   const stats = getStats();
+  const downloads = getDownloads();
+
+  useEffect(() => {
+    setPlaylists(getPlaylists());
+  }, []);
 
   const handleClearHistory = () => {
     clearHistory();
@@ -35,6 +36,10 @@ export function LibraryView({ playlists, onPlaylistSelect, onPlaylistsUpdate }: 
     if (favorites.length > 0) {
       playAll(favorites);
     }
+  };
+
+  const refreshPlaylists = () => {
+    setPlaylists(getPlaylists());
   };
 
   return (
@@ -55,6 +60,10 @@ export function LibraryView({ playlists, onPlaylistSelect, onPlaylistsUpdate }: 
             <Clock className="w-4 h-4" />
             History
           </TabsTrigger>
+          <TabsTrigger value="downloads" className="gap-2">
+            <Download className="w-4 h-4" />
+            Downloads ({downloads.length})
+          </TabsTrigger>
           <TabsTrigger value="stats" className="gap-2">
             <BarChart3 className="w-4 h-4" />
             Stats
@@ -65,7 +74,7 @@ export function LibraryView({ playlists, onPlaylistSelect, onPlaylistsUpdate }: 
         <TabsContent value="playlists" className="mt-6">
           <div className="flex items-center justify-between mb-4">
             <p className="text-muted-foreground">{playlists.length} playlists</p>
-            <CreatePlaylistDialog onPlaylistCreated={onPlaylistsUpdate}>
+            <CreatePlaylistDialog onPlaylistCreated={refreshPlaylists}>
               <Button size="sm" className="gap-2">
                 <Music2 className="w-4 h-4" />
                 New Playlist
@@ -77,7 +86,7 @@ export function LibraryView({ playlists, onPlaylistSelect, onPlaylistsUpdate }: 
             <div className="text-center py-16">
               <Music2 className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
               <p className="text-muted-foreground mb-4">No playlists yet</p>
-              <CreatePlaylistDialog onPlaylistCreated={onPlaylistsUpdate}>
+              <CreatePlaylistDialog onPlaylistCreated={refreshPlaylists}>
                 <Button>Create Your First Playlist</Button>
               </CreatePlaylistDialog>
             </div>
@@ -88,8 +97,7 @@ export function LibraryView({ playlists, onPlaylistSelect, onPlaylistsUpdate }: 
                   key={playlist.id}
                   playlist={playlist}
                   index={index}
-                  onSelect={onPlaylistSelect}
-                  onDelete={onPlaylistsUpdate}
+                  onDelete={refreshPlaylists}
                 />
               ))}
             </div>
@@ -144,6 +152,38 @@ export function LibraryView({ playlists, onPlaylistSelect, onPlaylistsUpdate }: 
             <div className="space-y-2">
               {history.map((video) => (
                 <MusicCard key={video.videoId} video={video} variant="compact" />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Downloads Tab */}
+        <TabsContent value="downloads" className="mt-6">
+          {downloads.length === 0 ? (
+            <div className="text-center py-16">
+              <Download className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
+              <p className="text-muted-foreground">No downloads yet</p>
+              <p className="text-sm text-muted-foreground mt-2">Download songs to listen offline</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {downloads.map((track) => (
+                <motion.div
+                  key={track.videoId}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="glass rounded-xl p-3 cursor-pointer hover:bg-accent transition-colors"
+                >
+                  <div className="aspect-square rounded-lg overflow-hidden mb-3">
+                    <img 
+                      src={track.thumbnail} 
+                      alt={track.title}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <h3 className="font-medium text-sm truncate">{track.title}</h3>
+                  <p className="text-xs text-muted-foreground truncate">{track.author}</p>
+                </motion.div>
               ))}
             </div>
           )}

@@ -5,17 +5,13 @@ import { Player } from '@/components/Player';
 import { MusicGrid } from '@/components/MusicGrid';
 import { QuickPicks } from '@/components/QuickPicks';
 import { MoodChips } from '@/components/MoodChips';
-import { PlaylistView } from '@/components/playlists/PlaylistView';
-import { PlaylistCard } from '@/components/playlists/PlaylistCard';
-import { CreatePlaylistDialog } from '@/components/playlists/CreatePlaylistDialog';
 import { FullscreenLyrics } from '@/components/lyrics/FullscreenLyrics';
 import { LibraryView } from '@/components/LibraryView';
 import { ExploreView } from '@/components/ExploreView';
+import { SettingsPage } from '@/components/SettingsPage';
+import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
 import { useSearch } from '@/hooks/useSearch';
-import { getPlaylists } from '@/lib/playlists';
-import { getPreferredArtists, hasSelectedArtists } from '@/lib/storage';
-import { UserPlaylist } from '@/types/music';
-import { Plus } from 'lucide-react';
+import { getPreferredArtists, hasCompletedOnboarding, getGreeting } from '@/lib/storage';
 import { toast } from 'sonner';
 
 export default function Index() {
@@ -23,104 +19,111 @@ export default function Index() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeMood, setActiveMood] = useState<string>();
   const [initialized, setInitialized] = useState(false);
-  const [selectedPlaylist, setSelectedPlaylist] = useState<UserPlaylist | null>(null);
-  const [playlists, setPlaylists] = useState<UserPlaylist[]>([]);
   const [showLyrics, setShowLyrics] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const { videos, loading, search } = useSearch();
 
-  const loadPlaylists = useCallback(() => {
-    setPlaylists(getPlaylists());
+  // Check onboarding on mount
+  useEffect(() => {
+    if (!hasCompletedOnboarding()) {
+      setShowOnboarding(true);
+    }
   }, []);
 
   useEffect(() => {
-    loadPlaylists();
-  }, [loadPlaylists]);
-
-  useEffect(() => {
-    if (!initialized) {
+    if (!initialized && !showOnboarding) {
       // Use preferred artists if available
       const preferredArtists = getPreferredArtists();
       if (preferredArtists.length > 0) {
-        const randomArtist = preferredArtists[Math.floor(Math.random() * preferredArtists.length)];
-        search(randomArtist);
+        // Pick multiple random artists for variety
+        const shuffled = [...preferredArtists].sort(() => Math.random() - 0.5);
+        const selected = shuffled.slice(0, 3);
+        search(selected.join(' '));
       } else {
         // Random popular artists for variety
-        const defaultArtists = ['Taylor Swift', 'Drake', 'The Weeknd', 'Ed Sheeran', 'Dua Lipa', 'Bad Bunny'];
-        const randomArtist = defaultArtists[Math.floor(Math.random() * defaultArtists.length)];
-        search(randomArtist);
+        const defaultArtists = ['Taylor Swift', 'Drake', 'The Weeknd', 'Ed Sheeran', 'Dua Lipa', 'Bad Bunny', 'BTS', 'Billie Eilish'];
+        const shuffled = [...defaultArtists].sort(() => Math.random() - 0.5);
+        search(shuffled.slice(0, 3).join(' '));
       }
       setInitialized(true);
     }
-  }, [initialized, search]);
+  }, [initialized, search, showOnboarding]);
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
-    setSelectedPlaylist(null);
     if (query.trim()) {
       search(query);
       setActiveMood(undefined);
     } else {
-      const defaultArtists = ['Taylor Swift', 'Drake', 'The Weeknd'];
-      search(defaultArtists[Math.floor(Math.random() * defaultArtists.length)]);
+      const preferredArtists = getPreferredArtists();
+      const defaultArtists = preferredArtists.length > 0 ? preferredArtists : ['Taylor Swift', 'Drake', 'The Weeknd'];
+      const shuffled = [...defaultArtists].sort(() => Math.random() - 0.5);
+      search(shuffled.slice(0, 3).join(' '));
     }
   }, [search]);
 
   const handleMoodSelect = useCallback((mood: string) => {
     setActiveMood(mood);
-    setSelectedPlaylist(null);
     search(`${mood} music playlist`);
   }, [search]);
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    setSelectedPlaylist(null);
     setSearchQuery('');
-  };
-
-  const handlePlaylistSelect = (playlist: UserPlaylist) => {
-    setSelectedPlaylist(playlist);
-    setActiveTab('library');
+    setShowSettings(false);
   };
 
   const handleSignInClick = () => {
     toast.info('Sign in coming soon!');
   };
 
+  const handleOnboardingComplete = () => {
+    setShowOnboarding(false);
+    setInitialized(false); // Trigger reload with new preferences
+  };
+
+  // Show onboarding
+  if (showOnboarding) {
+    return <OnboardingFlow onComplete={handleOnboardingComplete} />;
+  }
+
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
+    <div 
+      className="h-screen flex flex-col overflow-hidden"
+      style={{
+        background: 'var(--dynamic-bg, var(--gradient-hero))'
+      }}
+    >
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <Sidebar 
           activeTab={activeTab} 
           onTabChange={handleTabChange}
-          onPlaylistSelect={handlePlaylistSelect}
           onSignInClick={handleSignInClick}
+          onSettingsClick={() => setShowSettings(true)}
         />
 
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto scrollbar-thin">
           {/* Header with Search */}
-          <header className="sticky top-0 z-10 glass border-b border-border">
-            <div className="px-6 py-4">
-              <SearchBar onSearch={handleSearch} />
+          <header className="sticky top-0 z-10 backdrop-blur-xl border-b border-border/30">
+            <div className="px-6 py-4 flex items-center justify-between">
+              <div className="flex-1 max-w-xl">
+                <SearchBar onSearch={handleSearch} />
+              </div>
+              <p className="text-sm text-muted-foreground hidden md:block ml-4">
+                {getGreeting()} 🎶
+              </p>
             </div>
           </header>
 
           {/* Content */}
           <div className="p-6 pb-28 space-y-8">
-            {/* Playlist View */}
-            {selectedPlaylist ? (
-              <PlaylistView
-                playlist={selectedPlaylist}
-                onBack={() => setSelectedPlaylist(null)}
-                onUpdate={loadPlaylists}
-              />
+            {showSettings ? (
+              <SettingsPage onBack={() => setShowSettings(false)} />
             ) : activeTab === 'library' ? (
-              <LibraryView 
-                playlists={playlists}
-                onPlaylistSelect={setSelectedPlaylist}
-                onPlaylistsUpdate={loadPlaylists}
-              />
+              <LibraryView />
             ) : activeTab === 'explore' ? (
               <ExploreView />
             ) : (

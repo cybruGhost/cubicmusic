@@ -1,17 +1,26 @@
 import { useState, useEffect } from 'react';
-import { Home, Compass, Library, Music2, Plus, ListMusic, ChevronLeft, ChevronRight, User } from 'lucide-react';
+import { 
+  Home, 
+  Compass, 
+  Library, 
+  Music2, 
+  ChevronLeft, 
+  ChevronRight, 
+  User,
+  Settings,
+  Sparkles,
+  Radio
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getPlaylists } from '@/lib/playlists';
-import { UserPlaylist } from '@/types/music';
-import { CreatePlaylistDialog } from './playlists/CreatePlaylistDialog';
-import { ScrollArea } from './ui/scroll-area';
+import { getGreeting } from '@/lib/storage';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { motion } from 'framer-motion';
 
 interface SidebarProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
-  onPlaylistSelect?: (playlist: UserPlaylist) => void;
   onSignInClick?: () => void;
+  onSettingsClick?: () => void;
 }
 
 const navItems = [
@@ -20,52 +29,46 @@ const navItems = [
   { id: 'library', icon: Library, label: 'Library' },
 ];
 
-export function Sidebar({ activeTab, onTabChange, onPlaylistSelect, onSignInClick }: SidebarProps) {
-  const [playlists, setPlaylists] = useState<UserPlaylist[]>([]);
+export function Sidebar({ activeTab, onTabChange, onSignInClick, onSettingsClick }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
-
-  const loadPlaylists = () => {
-    setPlaylists(getPlaylists());
-  };
-
-  useEffect(() => {
-    loadPlaylists();
-  }, []);
+  const greeting = getGreeting();
 
   return (
     <aside 
       className={cn(
-        "h-full bg-sidebar border-r border-sidebar-border flex flex-col transition-all duration-300",
-        collapsed ? "w-[70px]" : "w-64"
+        "h-full flex flex-col transition-all duration-300 border-r border-border/50",
+        collapsed ? "w-[72px]" : "w-72"
       )}
+      style={{
+        background: 'linear-gradient(180deg, hsl(240 12% 6%) 0%, hsl(240 10% 4%) 100%)'
+      }}
     >
       {/* Logo */}
-      <div className={cn("p-4 flex items-center", collapsed ? "justify-center" : "gap-3")}>
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center glow flex-shrink-0">
-          <Music2 className="w-5 h-5 text-primary-foreground" />
-        </div>
+      <div className={cn("p-5 flex items-center", collapsed ? "justify-center" : "gap-3")}>
+        <motion.div 
+          whileHover={{ scale: 1.05, rotate: 5 }}
+          className="w-11 h-11 rounded-2xl bg-gradient-to-br from-primary via-primary/80 to-primary/60 flex items-center justify-center shadow-lg flex-shrink-0"
+          style={{ boxShadow: '0 0 30px hsl(174 72% 56% / 0.3)' }}
+        >
+          <Music2 className="w-6 h-6 text-primary-foreground" />
+        </motion.div>
         {!collapsed && (
-          <span className="text-xl font-bold text-gradient">C-Music</span>
+          <div>
+            <span className="text-xl font-bold text-gradient tracking-tight">C-Music</span>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-widest">Premium</p>
+          </div>
         )}
       </div>
 
-      {/* Collapse Button */}
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="mx-3 mb-2 p-2 rounded-lg hover:bg-accent transition-colors flex items-center justify-center"
-      >
-        {collapsed ? (
-          <ChevronRight className="w-4 h-4 text-muted-foreground" />
-        ) : (
-          <div className="flex items-center gap-2 w-full">
-            <ChevronLeft className="w-4 h-4 text-muted-foreground" />
-            {!collapsed && <span className="text-xs text-muted-foreground">Collapse</span>}
-          </div>
-        )}
-      </button>
+      {/* Greeting */}
+      {!collapsed && (
+        <div className="px-5 py-3">
+          <p className="text-sm text-foreground font-medium">{greeting} 👋</p>
+        </div>
+      )}
 
       {/* Navigation */}
-      <nav className="px-3">
+      <nav className="px-3 mt-2">
         <ul className="space-y-1">
           {navItems.map((item) => (
             <li key={item.id}>
@@ -74,13 +77,21 @@ export function Sidebar({ activeTab, onTabChange, onPlaylistSelect, onSignInClic
                   <button
                     onClick={() => onTabChange(item.id)}
                     className={cn(
-                      "nav-link w-full text-sm font-medium",
+                      "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200",
                       collapsed && "justify-center px-2",
-                      activeTab === item.id && "active"
+                      activeTab === item.id 
+                        ? "bg-primary/15 text-primary" 
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
                     )}
                   >
-                    <item.icon className="w-5 h-5 flex-shrink-0" />
+                    <item.icon className={cn(
+                      "w-5 h-5 flex-shrink-0 transition-transform",
+                      activeTab === item.id && "scale-110"
+                    )} />
                     {!collapsed && item.label}
+                    {!collapsed && activeTab === item.id && (
+                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />
+                    )}
                   </button>
                 </TooltipTrigger>
                 {collapsed && (
@@ -94,65 +105,77 @@ export function Sidebar({ activeTab, onTabChange, onPlaylistSelect, onSignInClic
         </ul>
       </nav>
 
-      {/* Playlists Section */}
+      {/* Quick Access */}
       {!collapsed && (
-        <div className="mt-6 flex-1 flex flex-col min-h-0">
-          <div className="px-6 flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Playlists
-            </span>
-            <CreatePlaylistDialog onPlaylistCreated={loadPlaylists}>
-              <button className="p-1 hover:bg-accent rounded transition-colors">
-                <Plus className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-              </button>
-            </CreatePlaylistDialog>
+        <div className="px-5 mt-6">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">
+            Quick Access
+          </p>
+          <div className="space-y-2">
+            <button 
+              onClick={() => onTabChange('home')}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg bg-gradient-to-r from-primary/10 to-primary/5 hover:from-primary/20 hover:to-primary/10 transition-all group"
+            >
+              <Sparkles className="w-4 h-4 text-primary group-hover:scale-110 transition-transform" />
+              <span className="text-sm text-foreground">Discover</span>
+            </button>
+            <button 
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent transition-all group"
+            >
+              <Radio className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+              <span className="text-sm text-muted-foreground group-hover:text-foreground">Radio Mode</span>
+            </button>
           </div>
-          
-          <ScrollArea className="flex-1 px-3">
-            {playlists.length === 0 ? (
-              <div className="px-3 py-4 text-center">
-                <ListMusic className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
-                <p className="text-xs text-muted-foreground">
-                  No playlists yet
-                </p>
-              </div>
-            ) : (
-              <ul className="space-y-1 pb-4">
-                {playlists.map((playlist) => (
-                  <li key={playlist.id}>
-                    <button
-                      onClick={() => onPlaylistSelect?.(playlist)}
-                      className="nav-link w-full text-sm"
-                    >
-                      <div className="w-8 h-8 rounded bg-secondary flex items-center justify-center flex-shrink-0 overflow-hidden">
-                        {playlist.thumbnail ? (
-                          <img 
-                            src={playlist.thumbnail} 
-                            alt={playlist.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <ListMusic className="w-4 h-4 text-muted-foreground" />
-                        )}
-                      </div>
-                      <span className="truncate">{playlist.name}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </ScrollArea>
         </div>
       )}
 
-      {/* Sign In Button */}
-      <div className={cn("mt-auto p-3", collapsed && "px-2")}>
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* Collapse Toggle */}
+      <div className="px-3 py-2">
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className={cn(
+            "w-full p-2.5 rounded-lg hover:bg-accent transition-colors flex items-center",
+            collapsed ? "justify-center" : "gap-2"
+          )}
+        >
+          {collapsed ? (
+            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          ) : (
+            <>
+              <ChevronLeft className="w-4 h-4 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Collapse</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Bottom Actions */}
+      <div className={cn("p-3 space-y-2 border-t border-border/30", collapsed && "px-2")}>
+        <Tooltip delayDuration={0}>
+          <TooltipTrigger asChild>
+            <button 
+              onClick={onSettingsClick}
+              className={cn(
+                "w-full py-2.5 px-3 rounded-xl text-sm font-medium transition-all duration-200 flex items-center gap-2 text-muted-foreground hover:text-foreground hover:bg-accent",
+                collapsed && "justify-center px-2"
+              )}
+            >
+              <Settings className="w-4 h-4" />
+              {!collapsed && "Settings"}
+            </button>
+          </TooltipTrigger>
+          {collapsed && <TooltipContent side="right">Settings</TooltipContent>}
+        </Tooltip>
+
         <Tooltip delayDuration={0}>
           <TooltipTrigger asChild>
             <button 
               onClick={onSignInClick}
               className={cn(
-                "w-full py-2.5 px-4 bg-secondary/50 border border-border rounded-xl text-foreground text-sm font-medium hover:bg-secondary transition-all duration-200 flex items-center gap-2",
+                "w-full py-2.5 px-3 bg-primary/10 border border-primary/20 rounded-xl text-primary text-sm font-medium hover:bg-primary/20 transition-all duration-200 flex items-center gap-2",
                 collapsed && "justify-center px-2"
               )}
             >

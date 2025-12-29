@@ -15,11 +15,10 @@ import { toast } from 'sonner';
 interface PlaylistCardProps {
   playlist: UserPlaylist;
   index: number;
-  onSelect?: (playlist: UserPlaylist) => void;
   onDelete?: () => void;
 }
 
-export function PlaylistCard({ playlist, index, onSelect, onDelete }: PlaylistCardProps) {
+export function PlaylistCard({ playlist, index, onDelete }: PlaylistCardProps) {
   const { playTrack, addToQueue } = usePlayerContext();
 
   const handlePlay = () => {
@@ -46,7 +45,7 @@ export function PlaylistCard({ playlist, index, onSelect, onDelete }: PlaylistCa
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05 }}
       className="group relative bg-card hover:bg-accent rounded-xl p-4 transition-all duration-300 cursor-pointer"
-      onClick={() => onSelect?.(playlist)}
+      onClick={handlePlay}
     >
       {/* Thumbnail */}
       <div className="relative aspect-square rounded-lg overflow-hidden mb-3 bg-secondary">
