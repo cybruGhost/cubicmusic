@@ -46,6 +46,7 @@ const SUGGESTED_ARTISTS: Artist[] = [
   { name: "BLACKPINK", genre: "K-Pop" },
   { name: "Peso Pluma", genre: "Latin" },
   { name: "Burna Boy", genre: "Afrobeats" },
+  { name: "NF", genre: "Hip-Hop" }, // Added NF to suggestions
 ];
 
 interface OnboardingFlowProps {
@@ -59,6 +60,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Artist[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string>('');
   
   const debouncedSearch = useDebounce(searchQuery, 500);
 
@@ -66,30 +68,43 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     if (!query.trim() || query.length < 2) {
       setSearchResults([]);
       setIsSearching(false);
+      setSearchError('');
       return;
     }
 
     setIsSearching(true);
+    setSearchError('');
 
     try {
       // Search from API - use the query directly without "artist" suffix
       const searchUrl = `https://yt.omada.cafe/api/v1/search?q=${encodeURIComponent(query)}`;
       
-      const response = await fetch(searchUrl);
+      console.log('Searching URL:', searchUrl);
+      
+      const response = await fetch(searchUrl, {
+        headers: {
+          'Accept': 'application/json',
+        },
+        mode: 'cors',
+        credentials: 'omit'
+      });
 
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
+      console.log('API Response:', data);
 
       const artists: Artist[] = [];
       const seen = new Set<string>();
 
-      // First add local matches
+      // First add local matches (including exact match for NF)
+      const queryLower = query.toLowerCase();
       const localMatches = SUGGESTED_ARTISTS.filter(artist =>
-        artist.name.toLowerCase().includes(query.toLowerCase())
+        artist.name.toLowerCase().includes(queryLower)
       );
+      
       localMatches.forEach(artist => {
         if (!seen.has(artist.name)) {
           seen.add(artist.name);
@@ -97,111 +112,115 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         }
       });
 
-      // Parse API response
-      if (data && Array.isArray(data.content)) {
-        data.content.forEach((item: any) => {
-          // Check for channel type with author
-          if (item.type === 'channel' && item.author && item.author.trim()) {
-            const artistName = item.author.trim();
-            if (!seen.has(artistName)) {
-              seen.add(artistName);
-              artists.push({
-                name: artistName,
-                genre: 'Artist',
-                id: item.authorId,
-                thumbnail: item.authorThumbnails?.[0]?.url,
-                verified: item.authorVerified || false
-              });
-            }
-          }
+      // Parse API response - check different possible structures
+      if (data) {
+        // Try to extract content from different possible response structures
+        let content = data.content || data.results || data.items || data;
+        
+        if (content && Array.isArray(content)) {
+          console.log('Found array of items:', content.length);
           
-          // Check for video type with author
-          if (item.type === 'video' && item.author && item.author.trim()) {
-            const artistName = item.author.trim();
-            if (!seen.has(artistName)) {
-              seen.add(artistName);
-              artists.push({
-                name: artistName,
-                genre: 'Artist',
-                id: item.authorId,
-                thumbnail: item.videoThumbnails?.[0]?.url,
-                verified: item.authorVerified || false
-              });
-            }
-          }
-          
-          // Extract artist from video titles for videos without proper author field
-          if (item.type === 'video' && item.title) {
-            const title = item.title;
+          content.forEach((item: any) => {
+            console.log('Processing item:', item);
             
-            // Pattern 1: "NF - Song Title"
-            const dashMatch = title.match(/^([^\-]+)\s*-\s*/);
-            if (dashMatch && dashMatch[1]) {
-              const potentialArtist = dashMatch[1].trim();
-              if (potentialArtist && !seen.has(potentialArtist)) {
-                seen.add(potentialArtist);
-                artists.push({
-                  name: potentialArtist,
-                  genre: 'Artist',
-                  id: item.authorId,
-                  thumbnail: item.videoThumbnails?.[0]?.url,
-                  verified: item.authorVerified || false
-                });
+            // Check for channel type with author
+            if (item.type === 'channel' || item.resultType === 'channel') {
+              const artistName = item.author || item.name || item.title;
+              if (artistName && artistName.trim()) {
+                const trimmedName = artistName.trim();
+                if (!seen.has(trimmedName)) {
+                  seen.add(trimmedName);
+                  artists.push({
+                    name: trimmedName,
+                    genre: 'Artist',
+                    id: item.authorId || item.channelId || item.id,
+                    thumbnail: item.authorThumbnails?.[0]?.url || item.thumbnail?.[0]?.url,
+                    verified: item.authorVerified || item.verified || false
+                  });
+                }
               }
             }
             
-            // Pattern 2: "NF: Song Title"
-            const colonMatch = title.match(/^([^:]+)\s*:\s*/);
-            if (colonMatch && colonMatch[1]) {
-              const potentialArtist = colonMatch[1].trim();
-              if (potentialArtist && !seen.has(potentialArtist)) {
-                seen.add(potentialArtist);
-                artists.push({
-                  name: potentialArtist,
-                  genre: 'Artist',
-                  id: item.authorId,
-                  thumbnail: item.videoThumbnails?.[0]?.url,
-                  verified: item.authorVerified || false
-                });
+            // Check for video type with author
+            if (item.type === 'video' || item.resultType === 'video') {
+              const artistName = item.author || item.artist || item.channelName;
+              if (artistName && artistName.trim()) {
+                const trimmedName = artistName.trim();
+                if (!seen.has(trimmedName)) {
+                  seen.add(trimmedName);
+                  artists.push({
+                    name: trimmedName,
+                    genre: 'Artist',
+                    id: item.authorId || item.channelId,
+                    thumbnail: item.authorThumbnails?.[0]?.url || item.videoThumbnails?.[0]?.url,
+                    verified: item.authorVerified || false
+                  });
+                }
               }
-            }
-            
-            // Pattern 3: Look for the search query in the title
-            const queryLower = query.toLowerCase();
-            const titleLower = title.toLowerCase();
-            if (titleLower.includes(queryLower)) {
-              // Try to extract the part before common separators
-              const separators = [' - ', ': ', ' | ', '「', '"', "'", '('];
-              for (const sep of separators) {
-                const sepIndex = title.indexOf(sep);
-                if (sepIndex > 0) {
-                  const potentialArtist = title.substring(0, sepIndex).trim();
-                  if (potentialArtist && !seen.has(potentialArtist)) {
-                    seen.add(potentialArtist);
-                    artists.push({
-                      name: potentialArtist,
-                      genre: 'Artist',
-                      id: item.authorId,
-                      thumbnail: item.videoThumbnails?.[0]?.url,
-                      verified: item.authorVerified || false
-                    });
-                    break;
+              
+              // Also extract artist from video titles if author field is empty
+              if (item.title && (!artistName || artistName.trim() === '')) {
+                const title = item.title;
+                const patterns = [
+                  /^([^\-]+)\s*-\s*/,  // "Artist - Song"
+                  /^([^:]+)\s*:\s*/,   // "Artist: Song"
+                  /^([^\|]+)\s*\|\s*/, // "Artist | Song"
+                  /^([^\[]+)\s*\[\s*/, // "Artist [Song"
+                  /^([^\(]+)\s*\(\s*/, // "Artist (Song"
+                  /^([^~]+)\s*~\s*/,   // "Artist ~ Song"
+                  /^(.+?)\s+-\s+.+$/,  // "Artist - Song" (anywhere)
+                  /^(.+?)\s+by\s+(.+)$/i, // "Song by Artist"
+                ];
+                
+                for (const pattern of patterns) {
+                  const match = title.match(pattern);
+                  if (match && match[1]) {
+                    const potentialArtist = match[1].trim();
+                    if (potentialArtist && !seen.has(potentialArtist) && 
+                        potentialArtist.toLowerCase().includes(queryLower)) {
+                      seen.add(potentialArtist);
+                      artists.push({
+                        name: potentialArtist,
+                        genre: 'Artist',
+                        id: item.authorId || item.channelId,
+                        thumbnail: item.videoThumbnails?.[0]?.url,
+                        verified: item.authorVerified || false
+                      });
+                      break;
+                    }
                   }
                 }
               }
             }
-          }
-        });
+          });
+        } else {
+          console.warn('No content array found in response:', data);
+        }
       }
 
-      // Filter out artists that don't match the search query at all
-      const queryLower = query.toLowerCase();
-      const filteredArtists = artists.filter(artist => 
-        artist.name.toLowerCase().includes(queryLower) ||
-        queryLower.includes(artist.name.toLowerCase()) ||
-        artist.name.toLowerCase().split(' ').some(word => queryLower.includes(word)) ||
-        queryLower.split(' ').some(word => artist.name.toLowerCase().includes(word))
-      );
+      // Filter to ensure artists match the query
+      const filteredArtists = artists.filter(artist => {
+        const artistNameLower = artist.name.toLowerCase();
+        const queryWords = queryLower.split(/\s+/).filter(word => word.length > 1);
+        
+        // Exact match or contains query
+        if (artistNameLower === queryLower || artistNameLower.includes(queryLower)) {
+          return true;
+        }
+        
+        // Check if query contains artist name (partial)
+        if (queryLower.includes(artistNameLower)) {
+          return true;
+        }
+        
+        // Check word-by-word matching
+        const artistWords = artistNameLower.split(/\s+/);
+        const hasWordMatch = queryWords.some(qWord => 
+          artistWords.some(aWord => aWord.includes(qWord) || qWord.includes(aWord))
+        );
+        
+        return hasWordMatch;
+      });
 
       // Sort by: exact match first, then verification, then alphabetical
       const sortedArtists = filteredArtists
@@ -217,10 +236,13 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         })
         .slice(0, 20);
 
+      console.log('Final artists list:', sortedArtists);
       setSearchResults(sortedArtists);
       
     } catch (error) {
       console.error('Search error:', error);
+      setSearchError(`Search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
       // Fallback to local search only
       const fallbackResults = SUGGESTED_ARTISTS.filter(artist =>
         artist.name.toLowerCase().includes(query.toLowerCase())
@@ -237,6 +259,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     } else {
       setSearchResults([]);
       setIsSearching(false);
+      setSearchError('');
     }
   }, [debouncedSearch, searchArtists]);
 
@@ -392,6 +415,13 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                     <Loader2 className="absolute right-10 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
                   )}
                 </div>
+                
+                {/* Debug info */}
+                {searchError && (
+                  <div className="text-xs text-red-500 mt-2">
+                    {searchError}
+                  </div>
+                )}
               </div>
 
               {/* Selected Artists */}
@@ -454,7 +484,11 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                         variant="ghost"
                         size="sm"
                         onClick={() => {
-                          toggleArtist({ name: searchQuery, genre: 'Artist' });
+                          toggleArtist({ 
+                            name: searchQuery, 
+                            genre: 'Artist',
+                            id: `custom-${Date.now()}`,
+                          });
                           setSearchQuery('');
                         }}
                         className="h-6 text-xs gap-1"
@@ -495,6 +529,14 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                             {artist.verified && (
                               <span className="text-xs text-blue-500">✓</span>
                             )}
+                            {artist.genre && artist.genre !== 'Artist' && (
+                              <span className={cn(
+                                "text-xs px-1 py-0.5 rounded",
+                                isSelected ? "text-primary-foreground/70" : "text-muted-foreground"
+                              )}>
+                                {artist.genre}
+                              </span>
+                            )}
                           </motion.button>
                         );
                       })}
@@ -504,6 +546,9 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                       <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
                       <p>No artists found for "{searchQuery}"</p>
                       <p className="text-xs mt-1">Try a different search term</p>
+                      {searchError && (
+                        <p className="text-xs text-red-500 mt-1">{searchError}</p>
+                      )}
                     </div>
                   ) : null}
                 </motion.div>
@@ -531,7 +576,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                       >
                         {artist.name}
                         <span className={cn(
-                          "text-xs",
+                          "text-xs px-1 py-0.5 rounded",
                           isSelected ? "text-primary-foreground/70" : "text-muted-foreground"
                         )}>
                           {artist.genre}
@@ -566,6 +611,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                     onClick={handleComplete}
                     className="gap-2"
                     size="sm"
+                    disabled={selectedArtists.length === 0}
                   >
                     <Sparkles className="w-4 h-4" />
                     Continue
