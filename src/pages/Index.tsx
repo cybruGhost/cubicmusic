@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Search } from 'lucide-react';
+import { AnimatePresence } from 'framer-motion';
 import { Sidebar } from '@/components/Sidebar';
-import { SearchBar } from '@/components/SearchBar';
 import { Player } from '@/components/Player';
 import { MusicGrid } from '@/components/MusicGrid';
 import { QuickPicks } from '@/components/QuickPicks';
@@ -10,18 +11,21 @@ import { LibraryView } from '@/components/LibraryView';
 import { ExploreView } from '@/components/ExploreView';
 import { SettingsPage } from '@/components/SettingsPage';
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
+import { SearchPage } from '@/components/SearchPage';
+import { ChannelInfo } from '@/components/ChannelInfo';
 import { useSearch } from '@/hooks/useSearch';
 import { getPreferredArtists, hasCompletedOnboarding, getGreeting } from '@/lib/storage';
 import { toast } from 'sonner';
 
 export default function Index() {
   const [activeTab, setActiveTab] = useState('home');
-  const [searchQuery, setSearchQuery] = useState('');
   const [activeMood, setActiveMood] = useState<string>();
   const [initialized, setInitialized] = useState(false);
   const [showLyrics, setShowLyrics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [channelArtist, setChannelArtist] = useState<string | null>(null);
   const { videos, loading, search } = useSearch();
 
   // Check onboarding on mount
@@ -33,15 +37,12 @@ export default function Index() {
 
   useEffect(() => {
     if (!initialized && !showOnboarding) {
-      // Use preferred artists if available
       const preferredArtists = getPreferredArtists();
       if (preferredArtists.length > 0) {
-        // Pick multiple random artists for variety
         const shuffled = [...preferredArtists].sort(() => Math.random() - 0.5);
         const selected = shuffled.slice(0, 3);
         search(selected.join(' '));
       } else {
-        // Random popular artists for variety
         const defaultArtists = ['Taylor Swift', 'Drake', 'The Weeknd', 'Ed Sheeran', 'Dua Lipa', 'Bad Bunny', 'BTS', 'Billie Eilish'];
         const shuffled = [...defaultArtists].sort(() => Math.random() - 0.5);
         search(shuffled.slice(0, 3).join(' '));
@@ -50,19 +51,6 @@ export default function Index() {
     }
   }, [initialized, search, showOnboarding]);
 
-  const handleSearch = useCallback((query: string) => {
-    setSearchQuery(query);
-    if (query.trim()) {
-      search(query);
-      setActiveMood(undefined);
-    } else {
-      const preferredArtists = getPreferredArtists();
-      const defaultArtists = preferredArtists.length > 0 ? preferredArtists : ['Taylor Swift', 'Drake', 'The Weeknd'];
-      const shuffled = [...defaultArtists].sort(() => Math.random() - 0.5);
-      search(shuffled.slice(0, 3).join(' '));
-    }
-  }, [search]);
-
   const handleMoodSelect = useCallback((mood: string) => {
     setActiveMood(mood);
     search(`${mood} music playlist`);
@@ -70,7 +58,6 @@ export default function Index() {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    setSearchQuery('');
     setShowSettings(false);
   };
 
@@ -80,7 +67,11 @@ export default function Index() {
 
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
-    setInitialized(false); // Trigger reload with new preferences
+    setInitialized(false);
+  };
+
+  const handleOpenChannel = (artistName: string) => {
+    setChannelArtist(artistName);
   };
 
   // Show onboarding
@@ -102,19 +93,25 @@ export default function Index() {
           onTabChange={handleTabChange}
           onSignInClick={handleSignInClick}
           onSettingsClick={() => setShowSettings(true)}
+          autoClose
         />
 
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto scrollbar-thin">
-          {/* Header with Search */}
+          {/* Header with Search Icon */}
           <header className="sticky top-0 z-10 backdrop-blur-xl border-b border-border/30">
             <div className="px-6 py-4 flex items-center justify-between">
-              <div className="flex-1 max-w-xl">
-                <SearchBar onSearch={handleSearch} />
-              </div>
-              <p className="text-sm text-muted-foreground hidden md:block ml-4">
+              <p className="text-lg font-semibold text-foreground">
                 {getGreeting()} 🎶
               </p>
+              
+              <button
+                onClick={() => setShowSearch(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-secondary/80 hover:bg-secondary rounded-xl transition-all group"
+              >
+                <Search className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors hidden sm:inline">Search music...</span>
+              </button>
             </div>
           </header>
 
@@ -123,46 +120,33 @@ export default function Index() {
             {showSettings ? (
               <SettingsPage onBack={() => setShowSettings(false)} />
             ) : activeTab === 'library' ? (
-              <LibraryView />
+              <LibraryView onOpenChannel={handleOpenChannel} />
             ) : activeTab === 'explore' ? (
               <ExploreView />
             ) : (
               /* Home View */
               <>
-                {!searchQuery && (
-                  <>
-                    {/* Mood Chips */}
-                    <section>
-                      <MoodChips onMoodSelect={handleMoodSelect} activeMood={activeMood} />
-                    </section>
+                {/* Mood Chips */}
+                <section>
+                  <MoodChips onMoodSelect={handleMoodSelect} activeMood={activeMood} />
+                </section>
 
-                    {/* Quick Picks */}
-                    {videos.length > 0 && (
-                      <section>
-                        <QuickPicks videos={videos} />
-                      </section>
-                    )}
-
-                    {/* Main Grid */}
-                    <section>
-                      <MusicGrid
-                        videos={videos.slice(8)}
-                        loading={loading}
-                        title="Recommended for you"
-                      />
-                    </section>
-                  </>
-                )}
-
-                {searchQuery && (
+                {/* Quick Picks */}
+                {videos.length > 0 && (
                   <section>
-                    <MusicGrid
-                      videos={videos}
-                      loading={loading}
-                      title={`Results for "${searchQuery}"`}
-                    />
+                    <QuickPicks videos={videos} onOpenChannel={handleOpenChannel} />
                   </section>
                 )}
+
+                {/* Main Grid */}
+                <section>
+                  <MusicGrid
+                    videos={videos.slice(8)}
+                    loading={loading}
+                    title="Recommended for you"
+                    onOpenChannel={handleOpenChannel}
+                  />
+                </section>
               </>
             )}
           </div>
@@ -172,8 +156,31 @@ export default function Index() {
       {/* Fullscreen Lyrics */}
       <FullscreenLyrics isOpen={showLyrics} onClose={() => setShowLyrics(false)} />
 
+      {/* Search Page */}
+      <AnimatePresence>
+        {showSearch && (
+          <SearchPage 
+            onClose={() => setShowSearch(false)} 
+            onOpenChannel={handleOpenChannel}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Channel Info Modal */}
+      <AnimatePresence>
+        {channelArtist && (
+          <ChannelInfo 
+            artistName={channelArtist} 
+            onClose={() => setChannelArtist(null)} 
+          />
+        )}
+      </AnimatePresence>
+
       {/* Player Bar */}
-      <Player onLyricsOpen={() => setShowLyrics(true)} />
+      <Player 
+        onLyricsOpen={() => setShowLyrics(true)} 
+        onOpenChannel={handleOpenChannel}
+      />
     </div>
   );
 }
