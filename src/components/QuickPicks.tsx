@@ -9,6 +9,7 @@ import { motion } from 'framer-motion';
 
 interface QuickPicksProps {
   videos: Video[];
+  onOpenChannel?: (artistName: string) => void;
 }
 
 type QuickPickMode = 'mashup' | 'lastPlayed' | 'mostPlayed';
@@ -23,7 +24,7 @@ function stableHash(input: string): number {
   return h >>> 0;
 }
 
-export function QuickPicks({ videos }: QuickPicksProps) {
+export function QuickPicks({ videos, onOpenChannel }: QuickPicksProps) {
   const { playAll, currentTrack } = usePlayerContext();
   const [mode, setMode] = useState<QuickPickMode>('mashup');
   const [history, setHistory] = useState<Video[]>(() => getHistory());
@@ -131,7 +132,7 @@ export function QuickPicks({ videos }: QuickPicksProps) {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.05 }}
             >
-              <MusicCard video={video} variant="compact" />
+              <MusicCard video={video} variant="compact" onOpenChannel={onOpenChannel} />
             </motion.div>
           ))}
         </motion.div>

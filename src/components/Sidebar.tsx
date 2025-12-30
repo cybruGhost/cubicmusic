@@ -20,6 +20,7 @@ interface SidebarProps {
   onTabChange: (tab: string) => void;
   onSignInClick?: () => void;
   onSettingsClick?: () => void;
+  autoClose?: boolean;
 }
 
 const navItems = [
@@ -28,9 +29,29 @@ const navItems = [
   { id: 'library', icon: Library, label: 'Library' },
 ];
 
-export function Sidebar({ activeTab, onTabChange, onSignInClick, onSettingsClick }: SidebarProps) {
+export function Sidebar({ activeTab, onTabChange, onSignInClick, onSettingsClick, autoClose = false }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const greeting = getGreeting();
+
+  const handleTabChange = (tab: string) => {
+    onTabChange(tab);
+    // Auto-collapse on mobile or if autoClose is enabled
+    if (autoClose || window.innerWidth < 768) {
+      setCollapsed(true);
+    }
+  };
+
+  // Auto-collapse on mobile
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768) {
+        setCollapsed(true);
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   return (
     <aside 
@@ -74,7 +95,7 @@ export function Sidebar({ activeTab, onTabChange, onSignInClick, onSettingsClick
               <Tooltip delayDuration={0}>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={() => onTabChange(item.id)}
+                    onClick={() => handleTabChange(item.id)}
                     className={cn(
                       "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200",
                       collapsed && "justify-center px-2",
@@ -112,7 +133,7 @@ export function Sidebar({ activeTab, onTabChange, onSignInClick, onSettingsClick
           </p>
           <div className="space-y-2">
             <button 
-              onClick={() => onTabChange('home')}
+              onClick={() => handleTabChange('home')}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg bg-gradient-to-r from-primary/10 to-primary/5 hover:from-primary/20 hover:to-primary/10 transition-all group"
             >
               <Sparkles className="w-4 h-4 text-primary group-hover:scale-110 transition-transform" />

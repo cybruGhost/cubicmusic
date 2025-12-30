@@ -6,9 +6,10 @@ interface MusicGridProps {
   videos: Video[];
   loading?: boolean;
   title?: string;
+  onOpenChannel?: (artistName: string) => void;
 }
 
-export function MusicGrid({ videos, loading, title }: MusicGridProps) {
+export function MusicGrid({ videos, loading, title, onOpenChannel }: MusicGridProps) {
   if (loading) {
     return (
       <div className="space-y-4">
@@ -43,7 +44,7 @@ export function MusicGrid({ videos, loading, title }: MusicGridProps) {
       )}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
         {videos.map((video) => (
-          <MusicCard key={video.videoId} video={video} />
+          <MusicCard key={video.videoId} video={video} onOpenChannel={onOpenChannel} />
         ))}
       </div>
     </div>
