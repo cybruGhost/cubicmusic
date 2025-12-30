@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Music, Users, Calendar, Play, ExternalLink } from 'lucide-react';
+import { X, Music, Users, Calendar, Play, ExternalLink, Plus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { searchVideos } from '@/lib/api';
 import { Video } from '@/types/music';
@@ -131,7 +131,7 @@ export function ChannelInfo({ artistName, onClose }: ChannelInfoProps) {
                           <p className="text-sm text-muted-foreground truncate">{video.author}</p>
                           <div className="flex items-center gap-2 mt-1">
                             <span className="text-xs text-muted-foreground">
-                              {video.duration ? formatDuration(video.duration) : 'N/A'}
+                              {typeof video.lengthSeconds === 'number' ? formatDuration(video.lengthSeconds) : 'N/A'}
                             </span>
                             {video.viewCount && (
                               <span className="text-xs text-muted-foreground">

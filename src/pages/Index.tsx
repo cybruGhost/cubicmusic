@@ -8,7 +8,6 @@ import { MoodChips } from '@/components/MoodChips';
 import { FullscreenLyrics } from '@/components/lyrics/FullscreenLyrics';
 import { LibraryView } from '@/components/LibraryView';
 import { ExploreView } from '@/components/ExploreView';
-import { RadioPage } from '@/components/Radio'; // Note: Changed to capitalized Radio if that's your component name
 import { SettingsPage } from '@/components/SettingsPage';
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
 import { useSearch } from '@/hooks/useSearch';
@@ -127,8 +126,6 @@ export default function Index() {
               <LibraryView />
             ) : activeTab === 'explore' ? (
               <ExploreView />
-            ) : activeTab === 'radio' ? (  // Added radio tab condition
-              <RadioPage />
             ) : (
               /* Home View */
               <>

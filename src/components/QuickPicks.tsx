@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Video } from '@/types/music';
 import { MusicCard } from './MusicCard';
 import { PlayCircle, Shuffle, Clock, TrendingUp } from 'lucide-react';
@@ -13,37 +13,53 @@ interface QuickPicksProps {
 
 type QuickPickMode = 'mashup' | 'lastPlayed' | 'mostPlayed';
 
-export function QuickPicks({ videos }: QuickPicksProps) {
-  const { playAll } = usePlayerContext();
-  const [mode, setMode] = useState<QuickPickMode>('mashup');
-  const history = getHistory();
+function stableHash(input: string): number {
+  // Simple deterministic hash (fast + good enough for ordering)
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
 
-  const getDisplayVideos = (): Video[] => {
+export function QuickPicks({ videos }: QuickPicksProps) {
+  const { playAll, currentTrack } = usePlayerContext();
+  const [mode, setMode] = useState<QuickPickMode>('mashup');
+  const [history, setHistory] = useState<Video[]>(() => getHistory());
+  const [mashupSeed, setMashupSeed] = useState(() => String(Date.now()));
+
+  useEffect(() => {
+    // Refresh when playback changes or user switches modes
+    setHistory(getHistory());
+    if (mode === 'mashup') setMashupSeed(String(Date.now()));
+  }, [currentTrack?.videoId, mode]);
+
+  const displayVideos = useMemo((): Video[] => {
     switch (mode) {
       case 'lastPlayed':
         return history.slice(0, 8);
-      case 'mostPlayed':
-        // Use history as proxy for most played
+      case 'mostPlayed': {
+        // Use history as a proxy for most played
         const playCount = new Map<string, { video: Video; count: number }>();
         history.forEach(v => {
           const existing = playCount.get(v.videoId);
-          if (existing) {
-            existing.count++;
-          } else {
-            playCount.set(v.videoId, { video: v, count: 1 });
-          }
+          if (existing) existing.count++;
+          else playCount.set(v.videoId, { video: v, count: 1 });
         });
         return Array.from(playCount.values())
           .sort((a, b) => b.count - a.count)
           .slice(0, 8)
           .map(x => x.video);
-      default:
-        // Mashup - shuffle videos for variety
-        return [...videos].sort(() => Math.random() - 0.5).slice(0, 8);
+      }
+      default: {
+        // Mashup — stable per seed (no flicker on re-renders)
+        return [...videos]
+          .sort((a, b) => stableHash(a.videoId + mashupSeed) - stableHash(b.videoId + mashupSeed))
+          .slice(0, 8);
+      }
     }
-  };
-
-  const displayVideos = getDisplayVideos();
+  }, [history, mashupSeed, mode, videos]);
 
   const handlePlayAll = () => {
     if (displayVideos.length > 0) {

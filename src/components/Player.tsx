@@ -72,6 +72,7 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
     togglePlay,
     seek,
     setVolume,
+    playAll,
     playNext,
     playPrevious,
     toggleShuffle,
@@ -98,6 +99,66 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
   useEffect(() => {
     localStorage.setItem('autoFetchEnabled', autoFetchEnabled.toString());
   }, [autoFetchEnabled]);
+
+  const autoFetchLock = useRef(false);
+  const lastAutoFetchKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!autoFetchEnabled || !currentTrack) return;
+
+    // Prefetch when queue is getting low during playback
+    if (queue.length >= 3) return;
+    const key = `${currentTrack.videoId}:${queue.length}`;
+    if (autoFetchLock.current || lastAutoFetchKey.current === key) return;
+
+    autoFetchLock.current = true;
+    lastAutoFetchKey.current = key;
+
+    (async () => {
+      try {
+        const related = await fetchRelatedTracks(currentTrack.videoId);
+        if (!related.length) return;
+
+        const existingIds = new Set<string>([
+          currentTrack.videoId,
+          ...queue.map(q => q.videoId),
+        ]);
+
+        const toAdd = related.filter(v => !existingIds.has(v.videoId)).slice(0, 8);
+        toAdd.forEach(t => addToQueue(t));
+      } finally {
+        autoFetchLock.current = false;
+      }
+    })().catch(() => {
+      autoFetchLock.current = false;
+    });
+  }, [addToQueue, autoFetchEnabled, currentTrack?.videoId, fetchRelatedTracks, queue, currentTrack]);
+
+  useEffect(() => {
+    if (!autoFetchEnabled || !currentTrack) return;
+
+    // Auto-continue after a track ends (queue empty AND we're at the end)
+    if (isPlaying) return;
+    if (queue.length > 0) return;
+    if (!duration) return;
+    if (currentTime < duration - 0.25) return; // user paused mid-track
+
+    if (autoFetchLock.current) return;
+    autoFetchLock.current = true;
+
+    (async () => {
+      try {
+        const related = await fetchRelatedTracks(currentTrack.videoId);
+        if (related.length > 0) {
+          playAll(related, 0);
+        }
+      } finally {
+        autoFetchLock.current = false;
+      }
+    })().catch(() => {
+      autoFetchLock.current = false;
+    });
+  }, [autoFetchEnabled, currentTrack, currentTime, duration, fetchRelatedTracks, isPlaying, playAll, queue.length]);
 
   const handleLike = () => {
     if (!currentTrack) return;
