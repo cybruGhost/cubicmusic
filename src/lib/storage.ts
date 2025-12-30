@@ -13,7 +13,7 @@ const ARTIST_CHANNELS_KEY = 'cmusic_artist_channels'; // New key for artist chan
 
 // User Settings
 export interface UserSettings {
-  theme: 'dark' | 'dynamic';
+  theme: 'dark' | 'dynamic' | 'light';
   dynamicThemeIntensity: number;
   autoPlay: boolean;
   crossfade: boolean;

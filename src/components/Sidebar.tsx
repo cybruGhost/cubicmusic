@@ -1,15 +1,14 @@
 import { useState, useEffect } from 'react';
-import { 
-  Home, 
-  Compass, 
-  Library, 
-  Music2, 
-  ChevronLeft, 
-  ChevronRight, 
+import {
+  Home,
+  Compass,
+  Library,
+  Music2,
+  ChevronLeft,
+  ChevronRight,
   User,
   Settings,
   Sparkles,
-  Radio
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getGreeting } from '@/lib/storage';
@@ -23,12 +22,10 @@ interface SidebarProps {
   onSettingsClick?: () => void;
 }
 
-// Add 'radio' to navigation items
 const navItems = [
   { id: 'home', icon: Home, label: 'Home' },
   { id: 'explore', icon: Compass, label: 'Explore' },
   { id: 'library', icon: Library, label: 'Library' },
-  { id: 'radio', icon: Radio, label: 'Radio' }, // Added radio tab
 ];
 
 export function Sidebar({ activeTab, onTabChange, onSignInClick, onSettingsClick }: SidebarProps) {
@@ -120,13 +117,6 @@ export function Sidebar({ activeTab, onTabChange, onSignInClick, onSettingsClick
             >
               <Sparkles className="w-4 h-4 text-primary group-hover:scale-110 transition-transform" />
               <span className="text-sm text-foreground">Discover</span>
-            </button>
-            <button 
-              onClick={() => onTabChange('radio')} // Connect to radio tab
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent transition-all group"
-            >
-              <Radio className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-              <span className="text-sm text-muted-foreground group-hover:text-foreground">Radio Mode</span>
             </button>
           </div>
         </div>

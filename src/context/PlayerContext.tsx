@@ -24,6 +24,7 @@ interface PlayerContextType {
   toggleRepeat: () => void;
   clearQueue: () => void;
   removeFromQueue: (index: number) => void;
+  fetchRelatedTracks: (videoId: string) => Promise<Video[]>;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);

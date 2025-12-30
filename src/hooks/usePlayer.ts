@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Video, PlayerState } from '@/types/music';
+import { getRelatedVideos } from '@/lib/api';
 
 const API_BASE = 'https://yt.omada.cafe/api/v1';
 
@@ -269,6 +270,24 @@ export function usePlayer() {
     }));
   }, []);
 
+  const fetchRelatedTracks = useCallback(async (videoId: string): Promise<Video[]> => {
+    try {
+      const related = await getRelatedVideos(videoId);
+      // Remove duplicates and current track
+      const currentId = stateRef.current.currentTrack?.videoId;
+      const unique = related.filter(v => v.videoId !== currentId);
+      const seen = new Set<string>();
+      return unique.filter(v => {
+        if (seen.has(v.videoId)) return false;
+        seen.add(v.videoId);
+        return true;
+      });
+    } catch (e) {
+      console.error('fetchRelatedTracks failed:', e);
+      return [];
+    }
+  }, []);
+
   return {
     ...state,
     volume: state.volume / 100,
@@ -284,5 +303,6 @@ export function usePlayer() {
     toggleRepeat,
     clearQueue,
     removeFromQueue,
+    fetchRelatedTracks,
   };
 }
