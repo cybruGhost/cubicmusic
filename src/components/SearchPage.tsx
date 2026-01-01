@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ArrowLeft, Search, Music, User, Film, X, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Video, Channel, Playlist, SearchResult } from '@/types/music';
+import { Video, Channel, SearchResult } from '@/types/music';
 import { MusicCard } from '@/components/MusicCard';
-import { usePlayerContext } from '@/context/PlayerContext';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -44,7 +43,6 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [category, setCategory] = useState<CategoryType>('songs');
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const { playTrack, addToQueue } = usePlayerContext();
 
   // Load recent searches on mount
   useEffect(() => {
@@ -60,14 +58,12 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
 
     const timer = setTimeout(async () => {
       try {
-        // Use search API for suggestions
         const res = await fetch(`${API_BASE}/search/suggestions?q=${encodeURIComponent(query)}`);
         if (res.ok) {
           const data = await res.json();
           setSuggestions(data.suggestions || []);
         }
       } catch {
-        // Fallback: generate basic suggestions from query
         setSuggestions([
           `${query} songs`,
           `${query} music`,
@@ -120,10 +116,9 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
   const filteredResults = useMemo(() => {
     switch (category) {
       case 'songs':
-        // Prioritize music-related videos (shorter, music keywords)
         return results.filter((r): r is Video => {
           if (r.type !== 'video') return false;
-          const isMusicLike = r.lengthSeconds < 600; // Less than 10 min
+          const isMusicLike = r.lengthSeconds < 600;
           const hasMusicKeywords = /official|audio|lyric|music|song|album|track/i.test(r.title);
           return isMusicLike || hasMusicKeywords;
         });
@@ -141,13 +136,16 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 bg-background flex flex-col"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 20 }}
+      className="fixed inset-0 z-40 flex flex-col"
+      style={{
+        background: 'linear-gradient(180deg, hsl(240 12% 8%) 0%, hsl(240 10% 4%) 100%)'
+      }}
     >
       {/* Header */}
-      <header className="p-4 border-b border-border/30">
+      <header className="p-4 border-b border-border/30 bg-background/80 backdrop-blur-xl">
         <form onSubmit={handleSubmit} className="flex items-center gap-3">
           <button
             type="button"
@@ -159,21 +157,21 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
           
           <div className="flex-1 relative">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
               <input
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onFocus={() => setShowSuggestions(true)}
                 placeholder="Search songs, artists, albums..."
-                className="w-full pl-11 pr-10 py-3 bg-secondary rounded-xl border-0 outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                className="w-full pl-12 pr-10 py-3.5 bg-secondary/80 rounded-2xl border border-border/50 outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all text-foreground placeholder:text-muted-foreground"
                 autoFocus
               />
               {query && (
                 <button
                   type="button"
                   onClick={() => setQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-accent rounded-full"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 hover:bg-accent rounded-full"
                 >
                   <X className="w-4 h-4 text-muted-foreground" />
                 </button>
@@ -187,28 +185,26 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="absolute top-full left-0 right-0 mt-2 bg-popover rounded-xl shadow-xl border overflow-hidden z-10"
+                  className="absolute top-full left-0 right-0 mt-2 bg-card rounded-2xl shadow-2xl border border-border/50 overflow-hidden z-20"
                 >
                   {query ? (
-                    // Search suggestions
                     <div className="py-2">
                       {suggestions.map((suggestion, i) => (
                         <button
                           key={i}
                           type="button"
                           onClick={() => handleSuggestionClick(suggestion)}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-accent transition-colors text-left"
+                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors text-left"
                         >
                           <Search className="w-4 h-4 text-muted-foreground" />
-                          <span className="text-sm">{suggestion}</span>
+                          <span className="text-sm text-foreground">{suggestion}</span>
                         </button>
                       ))}
                     </div>
                   ) : (
-                    // Recent searches
                     <div className="py-2">
                       <div className="flex items-center justify-between px-4 py-2">
-                        <span className="text-xs font-medium text-muted-foreground uppercase">Recent</span>
+                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Recent</span>
                         <button
                           type="button"
                           onClick={handleClearRecent}
@@ -222,10 +218,10 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
                           key={i}
                           type="button"
                           onClick={() => handleSuggestionClick(search)}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-accent transition-colors text-left"
+                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors text-left"
                         >
                           <Clock className="w-4 h-4 text-muted-foreground" />
-                          <span className="text-sm">{search}</span>
+                          <span className="text-sm text-foreground">{search}</span>
                         </button>
                       ))}
                     </div>
@@ -238,7 +234,7 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
         
         {/* Category Tabs */}
         {results.length > 0 && (
-          <div className="flex gap-2 mt-4 overflow-x-auto pb-2">
+          <div className="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin">
             {[
               { id: 'songs', icon: Music, label: 'Songs' },
               { id: 'videos', icon: Film, label: 'Videos' },
@@ -248,10 +244,10 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
                 key={cat.id}
                 onClick={() => setCategory(cat.id as CategoryType)}
                 className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap",
+                  "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap border",
                   category === cat.id
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-muted-foreground hover:text-foreground"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-secondary/50 text-muted-foreground hover:text-foreground border-transparent hover:border-border/50"
                 )}
               >
                 <cat.icon className="w-4 h-4" />
@@ -263,30 +259,35 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
       </header>
 
       {/* Results */}
-      <div className="flex-1 overflow-y-auto p-4 pb-28" onClick={() => setShowSuggestions(false)}>
+      <div 
+        className="flex-1 overflow-y-auto p-6 pb-28 scrollbar-thin" 
+        onClick={() => setShowSuggestions(false)}
+      >
         {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+          <div className="flex items-center justify-center h-64">
+            <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
           </div>
         ) : results.length === 0 && query ? (
-          <div className="text-center py-12">
-            <Search className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-            <p className="text-muted-foreground">No results found for "{query}"</p>
+          <div className="text-center py-16">
+            <Search className="w-16 h-16 text-muted-foreground mx-auto mb-4 opacity-30" />
+            <p className="text-lg text-muted-foreground">No results found for "{query}"</p>
+            <p className="text-sm text-muted-foreground/70 mt-2">Try different keywords</p>
           </div>
         ) : results.length === 0 ? (
-          <div className="text-center py-12">
-            <Search className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-            <p className="text-muted-foreground">Search for your favorite music</p>
+          <div className="text-center py-16">
+            <Search className="w-16 h-16 text-muted-foreground mx-auto mb-4 opacity-30" />
+            <p className="text-lg text-muted-foreground">Search for your favorite music</p>
+            <p className="text-sm text-muted-foreground/70 mt-2">Find songs, artists, and more</p>
           </div>
         ) : (
           <>
             {/* Songs Grid */}
             {(category === 'songs' || category === 'all') && videos.length > 0 && (
               <section className="mb-8">
-                {category === 'all' && <h2 className="text-lg font-semibold mb-4">Songs</h2>}
+                {category === 'all' && <h2 className="text-xl font-semibold mb-4 text-foreground">Songs</h2>}
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                   {videos.map((video) => (
-                    <MusicCard key={video.videoId} video={video} />
+                    <MusicCard key={video.videoId} video={video} onOpenChannel={onOpenChannel} />
                   ))}
                 </div>
               </section>
@@ -295,22 +296,22 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
             {/* Channels */}
             {(category === 'channels' || category === 'all') && channels.length > 0 && (
               <section className="mb-8">
-                {category === 'all' && <h2 className="text-lg font-semibold mb-4">Artists</h2>}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {category === 'all' && <h2 className="text-xl font-semibold mb-4 text-foreground">Artists</h2>}
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                   {channels.map((channel) => (
                     <button
                       key={channel.authorId}
                       onClick={() => onOpenChannel?.(channel.author)}
-                      className="p-4 rounded-xl bg-card hover:bg-accent transition-all text-center group"
+                      className="p-5 rounded-2xl bg-card border border-border/30 hover:bg-accent hover:border-primary/30 transition-all text-center group"
                     >
-                      <div className="w-20 h-20 mx-auto rounded-full overflow-hidden bg-secondary mb-3">
+                      <div className="w-24 h-24 mx-auto rounded-full overflow-hidden bg-secondary mb-4 ring-2 ring-border/50 group-hover:ring-primary/50 transition-all">
                         <img
                           src={channel.authorThumbnails?.[0]?.url || '/placeholder.svg'}
                           alt={channel.author}
                           className="w-full h-full object-cover group-hover:scale-110 transition-transform"
                         />
                       </div>
-                      <p className="font-medium truncate">{channel.author}</p>
+                      <p className="font-semibold text-foreground truncate">{channel.author}</p>
                       <p className="text-xs text-muted-foreground mt-1">
                         {channel.subCount ? `${(channel.subCount / 1000).toFixed(0)}K subscribers` : 'Channel'}
                       </p>
