@@ -5,6 +5,7 @@ interface ThemeColors {
   primary: string;
   secondary: string;
   accent: string;
+  hue: number;
 }
 
 interface ThemeContextType {
@@ -17,6 +18,7 @@ const defaultColors: ThemeColors = {
   primary: '174 72% 56%',
   secondary: '240 8% 12%',
   accent: '240 8% 14%',
+  hue: 174,
 };
 
 const ThemeContext = createContext<ThemeContextType>({
@@ -32,9 +34,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!imageUrl || settings.theme !== 'dynamic') {
-      // Reset to default
       document.documentElement.style.removeProperty('--dynamic-primary');
       document.documentElement.style.removeProperty('--dynamic-bg');
+      document.documentElement.style.removeProperty('--primary');
       setColors(null);
       return;
     }
@@ -49,69 +51,100 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        canvas.width = 50;
-        canvas.height = 50;
-        ctx.drawImage(img, 0, 0, 50, 50);
+        canvas.width = 100;
+        canvas.height = 100;
+        ctx.drawImage(img, 0, 0, 100, 100);
 
-        const imageData = ctx.getImageData(0, 0, 50, 50).data;
-        const colorCounts: Record<string, { count: number; r: number; g: number; b: number }> = {};
+        const imageData = ctx.getImageData(0, 0, 100, 100).data;
+        
+        // Collect vibrant colors with their counts
+        const colorBuckets: Map<string, { r: number; g: number; b: number; count: number; saturation: number }> = new Map();
 
-        // Sample colors
-        for (let i = 0; i < imageData.length; i += 16) {
+        for (let i = 0; i < imageData.length; i += 4) {
           const r = imageData[i];
           const g = imageData[i + 1];
           const b = imageData[i + 2];
           
-          // Skip very dark or very light colors
+          // Skip very dark or very light
           const brightness = (r + g + b) / 3;
-          if (brightness < 30 || brightness > 220) continue;
+          if (brightness < 25 || brightness > 230) continue;
           
-          // Skip grayscale
+          // Calculate saturation
           const max = Math.max(r, g, b);
           const min = Math.min(r, g, b);
-          if (max - min < 20) continue;
+          const saturation = max === 0 ? 0 : (max - min) / max;
+          
+          // Skip low saturation (grayscale)
+          if (saturation < 0.15) continue;
 
-          const key = `${Math.round(r / 20)}-${Math.round(g / 20)}-${Math.round(b / 20)}`;
-          if (!colorCounts[key]) {
-            colorCounts[key] = { count: 0, r, g, b };
+          // Bucket colors (reduce precision to group similar colors)
+          const bucketR = Math.round(r / 25) * 25;
+          const bucketG = Math.round(g / 25) * 25;
+          const bucketB = Math.round(b / 25) * 25;
+          const key = `${bucketR}-${bucketG}-${bucketB}`;
+          
+          const existing = colorBuckets.get(key);
+          if (existing) {
+            existing.count++;
+            // Keep the more saturated version
+            if (saturation > existing.saturation) {
+              existing.r = r;
+              existing.g = g;
+              existing.b = b;
+              existing.saturation = saturation;
+            }
+          } else {
+            colorBuckets.set(key, { r, g, b, count: 1, saturation });
           }
-          colorCounts[key].count++;
         }
 
-        // Find dominant color
-        let dominantColor = { r: 64, g: 191, b: 175 }; // Default teal
-        let maxCount = 0;
+        // Find most vibrant dominant color (balance count and saturation)
+        let bestColor = { r: 64, g: 191, b: 175 }; // Default teal
+        let bestScore = 0;
 
-        Object.values(colorCounts).forEach(({ count, r, g, b }) => {
-          if (count > maxCount) {
-            maxCount = count;
-            dominantColor = { r, g, b };
+        colorBuckets.forEach(({ r, g, b, count, saturation }) => {
+          // Score = count * saturation boost
+          const score = count * (1 + saturation * 2);
+          if (score > bestScore) {
+            bestScore = score;
+            bestColor = { r, g, b };
           }
         });
 
         // Convert to HSL
-        const { h, s, l } = rgbToHsl(dominantColor.r, dominantColor.g, dominantColor.b);
+        const { h, s, l } = rgbToHsl(bestColor.r, bestColor.g, bestColor.b);
         const intensity = settings.dynamicThemeIntensity;
 
-        // Apply dynamic theme
-        const primaryHsl = `${h} ${Math.min(s * 1.2, 80)}% ${Math.max(45, Math.min(l, 60))}%`;
+        // Create vibrant primary color
+        const adjustedS = Math.min(Math.max(s * 1.3, 50), 85);
+        const adjustedL = Math.min(Math.max(l, 40), 55);
+        const primaryHsl = `${h} ${adjustedS}% ${adjustedL}%`;
         
         setColors({
           primary: primaryHsl,
-          secondary: `${h} 15% 12%`,
-          accent: `${h} 20% 16%`,
+          secondary: `${h} 20% 12%`,
+          accent: `${h} 25% 18%`,
+          hue: h,
         });
 
-        // Apply CSS variables with intensity
+        // Apply CSS variables
         document.documentElement.style.setProperty('--dynamic-primary', primaryHsl);
+        document.documentElement.style.setProperty('--primary', primaryHsl);
+        
+        // Create rich gradient background
+        const bgIntensity = 6 + intensity * 6;
         document.documentElement.style.setProperty('--dynamic-bg', 
           `linear-gradient(135deg, 
-            hsl(240 10% 4%) 0%, 
-            hsl(${h} 15% ${6 + intensity * 4}%) 50%, 
-            hsl(${h} 20% ${8 + intensity * 4}%) 100%)`
+            hsl(${h} 15% ${bgIntensity}%) 0%, 
+            hsl(${h} 20% ${bgIntensity + 2}%) 50%, 
+            hsl(${h} 25% ${bgIntensity + 4}%) 100%)`
         );
+
+        // Update other theme colors for consistency
+        document.documentElement.style.setProperty('--accent', `${h} 25% 18%`);
+        document.documentElement.style.setProperty('--muted', `${h} 15% 20%`);
+        
       } catch {
-        // CORS or other error, use defaults
         setColors(null);
       }
     };
