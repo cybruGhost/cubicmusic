@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Play, MoreVertical, Trash2, Music2 } from 'lucide-react';
+import { Play, MoreVertical, Trash2, Music2, Eye } from 'lucide-react';
 import { UserPlaylist } from '@/types/music';
 import { usePlayerContext } from '@/context/PlayerContext';
 import {
@@ -7,6 +7,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { deletePlaylist } from '@/lib/playlists';
@@ -16,12 +17,14 @@ interface PlaylistCardProps {
   playlist: UserPlaylist;
   index: number;
   onDelete?: () => void;
+  onSelect?: () => void;
 }
 
-export function PlaylistCard({ playlist, index, onDelete }: PlaylistCardProps) {
+export function PlaylistCard({ playlist, index, onDelete, onSelect }: PlaylistCardProps) {
   const { playTrack, addToQueue } = usePlayerContext();
 
-  const handlePlay = () => {
+  const handlePlay = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     if (playlist.tracks.length === 0) {
       toast.error('Playlist is empty');
       return;
@@ -33,10 +36,16 @@ export function PlaylistCard({ playlist, index, onDelete }: PlaylistCardProps) {
     toast.success(`Playing "${playlist.name}"`);
   };
 
-  const handleDelete = () => {
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
     deletePlaylist(playlist.id);
     toast.success(`Deleted "${playlist.name}"`);
     onDelete?.();
+  };
+
+  const handleView = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSelect?.();
   };
 
   return (
@@ -45,7 +54,7 @@ export function PlaylistCard({ playlist, index, onDelete }: PlaylistCardProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05 }}
       className="group relative bg-card hover:bg-accent rounded-xl p-4 transition-all duration-300 cursor-pointer"
-      onClick={handlePlay}
+      onClick={onSelect}
     >
       {/* Thumbnail */}
       <div className="relative aspect-square rounded-lg overflow-hidden mb-3 bg-secondary">
@@ -64,10 +73,7 @@ export function PlaylistCard({ playlist, index, onDelete }: PlaylistCardProps) {
         {/* Play overlay */}
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handlePlay();
-            }}
+            onClick={handlePlay}
             className="w-12 h-12 rounded-full bg-primary flex items-center justify-center transform scale-90 group-hover:scale-100 transition-transform"
           >
             <Play className="w-6 h-6 text-primary-foreground fill-current ml-1" />
@@ -91,10 +97,16 @@ export function PlaylistCard({ playlist, index, onDelete }: PlaylistCardProps) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={(e) => {
-              e.stopPropagation();
-              handleDelete();
-            }} className="text-destructive">
+            <DropdownMenuItem onClick={handleView}>
+              <Eye className="w-4 h-4 mr-2" />
+              View Playlist
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handlePlay}>
+              <Play className="w-4 h-4 mr-2" />
+              Play All
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleDelete} className="text-destructive">
               <Trash2 className="w-4 h-4 mr-2" />
               Delete Playlist
             </DropdownMenuItem>

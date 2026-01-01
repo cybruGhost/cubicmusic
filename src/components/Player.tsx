@@ -181,46 +181,32 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
     toast.info('Preparing download...');
     
     try {
-      // Use your backend proxy to avoid CORS issues
       const apiUrl = `https://yt.omada.cafe/api/v1/videos/${currentTrack.videoId}`;
       const response = await fetch(apiUrl);
       const data = await response.json();
       
-      // Find audio format
+      // Find best audio format
       const audioFormat = data.adaptiveFormats?.find((f: any) => 
-        f.type?.startsWith('audio/') && f.encoding === 'mp4'
-      );
+        f.type?.startsWith('audio/') && (f.encoding === 'opus' || f.encoding === 'aac' || f.type?.includes('mp4'))
+      ) || data.adaptiveFormats?.find((f: any) => f.type?.startsWith('audio/'));
       
       if (!audioFormat?.url) {
         throw new Error('No audio format found');
       }
 
-      // Create a hidden iframe for download (no CORS issues this way)
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.src = audioFormat.url;
-      document.body.appendChild(iframe);
-      
-      // Also create a direct link click
+      // Create download link
       const link = document.createElement('a');
       link.href = audioFormat.url;
-      link.download = `${currentTrack.title.replace(/[^\w\s]/gi, '')}.mp3`;
+      link.download = `${currentTrack.title.replace(/[^\w\s-]/gi, '')}.mp3`;
+      link.target = '_blank';
       document.body.appendChild(link);
       link.click();
-      
-      // Cleanup
-      setTimeout(() => {
-        document.body.removeChild(link);
-        document.body.removeChild(iframe);
-      }, 1000);
+      document.body.removeChild(link);
       
       toast.success('Download started!');
     } catch (error) {
       console.error('Download error:', error);
-      toast.error('Download failed. Try the direct video page.');
-      
-      // Fallback: Open in new tab for manual download
-      window.open(`https://www.youtube.com/watch?v=${currentTrack.videoId}`, '_blank');
+      toast.error('Download failed');
     } finally {
       setIsDownloading(false);
     }

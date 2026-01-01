@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Heart, Clock, BarChart3, Trash2, Play, Music2, Download } from 'lucide-react';
+import { Heart, Clock, BarChart3, Trash2, Play, Music2, Download, HardDrive, FileDown } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { UserPlaylist, Video } from '@/types/music';
 import { PlaylistCard } from './playlists/PlaylistCard';
+import { PlaylistView } from './playlists/PlaylistView';
 import { CreatePlaylistDialog } from './playlists/CreatePlaylistDialog';
 import { MusicCard } from './MusicCard';
 import { getFavorites, getHistory, getStats, clearHistory, getDownloads } from '@/lib/storage';
 import { getPlaylists } from '@/lib/playlists';
+import { getCachedTracks, removeCachedAudio, getCacheSize } from '@/lib/audioCache';
 import { usePlayerContext } from '@/context/PlayerContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -17,10 +19,16 @@ interface LibraryViewProps {
   onOpenChannel?: (artistName: string) => void;
 }
 
+const API_BASE = 'https://yt.omada.cafe/api/v1';
+
 export function LibraryView({ onOpenChannel }: LibraryViewProps) {
   const [activeTab, setActiveTab] = useState('playlists');
   const [playlists, setPlaylists] = useState<UserPlaylist[]>([]);
-  const { playAll } = usePlayerContext();
+  const [selectedPlaylist, setSelectedPlaylist] = useState<UserPlaylist | null>(null);
+  const [cachedTracks, setCachedTracks] = useState<Video[]>([]);
+  const [cacheSize, setCacheSize] = useState(0);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const { playAll, playTrack } = usePlayerContext();
 
   const favorites = getFavorites();
   const history = getHistory();
@@ -29,7 +37,15 @@ export function LibraryView({ onOpenChannel }: LibraryViewProps) {
 
   useEffect(() => {
     setPlaylists(getPlaylists());
+    loadCachedTracks();
   }, []);
+
+  const loadCachedTracks = async () => {
+    const tracks = await getCachedTracks();
+    setCachedTracks(tracks);
+    const size = await getCacheSize();
+    setCacheSize(size);
+  };
 
   const handleClearHistory = () => {
     clearHistory();
@@ -46,12 +62,82 @@ export function LibraryView({ onOpenChannel }: LibraryViewProps) {
     setPlaylists(getPlaylists());
   };
 
+  const handleSelectPlaylist = (playlist: UserPlaylist) => {
+    setSelectedPlaylist(playlist);
+  };
+
+  const handleRemoveCached = async (videoId: string) => {
+    await removeCachedAudio(videoId);
+    loadCachedTracks();
+    toast.success('Removed from cache');
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
+  const handleDownloadMP3 = async (track: Video) => {
+    if (downloadingId) return;
+    
+    setDownloadingId(track.videoId);
+    toast.info(`Preparing ${track.title}...`);
+    
+    try {
+      const response = await fetch(`${API_BASE}/videos/${track.videoId}`);
+      const data = await response.json();
+      
+      const audioFormat = data.adaptiveFormats?.find((f: any) => 
+        f.type?.startsWith('audio/') && (f.encoding === 'opus' || f.encoding === 'aac' || f.type?.includes('mp4'))
+      ) || data.adaptiveFormats?.find((f: any) => f.type?.startsWith('audio/'));
+      
+      if (!audioFormat?.url) {
+        throw new Error('No audio format found');
+      }
+
+      // Create download link
+      const link = document.createElement('a');
+      link.href = audioFormat.url;
+      link.download = `${track.title.replace(/[^\w\s-]/gi, '')}.mp3`;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast.success('Download started!');
+    } catch (error) {
+      console.error('Download error:', error);
+      toast.error('Download failed');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  // Show playlist view if one is selected
+  if (selectedPlaylist) {
+    return (
+      <PlaylistView 
+        playlist={selectedPlaylist} 
+        onBack={() => setSelectedPlaylist(null)} 
+        onUpdate={() => {
+          refreshPlaylists();
+          // Refresh the selected playlist
+          const updated = getPlaylists().find(p => p.id === selectedPlaylist.id);
+          if (updated) setSelectedPlaylist(updated);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-foreground">Your Library</h1>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="bg-secondary/50">
+        <TabsList className="bg-secondary/50 flex-wrap">
           <TabsTrigger value="playlists" className="gap-2">
             <Music2 className="w-4 h-4" />
             Playlists
@@ -64,9 +150,9 @@ export function LibraryView({ onOpenChannel }: LibraryViewProps) {
             <Clock className="w-4 h-4" />
             History
           </TabsTrigger>
-          <TabsTrigger value="downloads" className="gap-2">
-            <Download className="w-4 h-4" />
-            Downloads ({downloads.length})
+          <TabsTrigger value="cached" className="gap-2">
+            <HardDrive className="w-4 h-4" />
+            Cached ({cachedTracks.length})
           </TabsTrigger>
           <TabsTrigger value="stats" className="gap-2">
             <BarChart3 className="w-4 h-4" />
@@ -102,6 +188,7 @@ export function LibraryView({ onOpenChannel }: LibraryViewProps) {
                   playlist={playlist}
                   index={index}
                   onDelete={refreshPlaylists}
+                  onSelect={() => handleSelectPlaylist(playlist)}
                 />
               ))}
             </div>
@@ -161,32 +248,81 @@ export function LibraryView({ onOpenChannel }: LibraryViewProps) {
           )}
         </TabsContent>
 
-        {/* Downloads Tab */}
-        <TabsContent value="downloads" className="mt-6">
-          {downloads.length === 0 ? (
+        {/* Cached Tab */}
+        <TabsContent value="cached" className="mt-6">
+          {cachedTracks.length > 0 && (
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-muted-foreground">
+                {cachedTracks.length} songs • {formatBytes(cacheSize)} used
+              </p>
+              <Button 
+                size="sm" 
+                onClick={() => playAll(cachedTracks)} 
+                className="gap-2"
+              >
+                <Play className="w-4 h-4" />
+                Play All Offline
+              </Button>
+            </div>
+          )}
+          
+          {cachedTracks.length === 0 ? (
             <div className="text-center py-16">
-              <Download className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
-              <p className="text-muted-foreground">No downloads yet</p>
-              <p className="text-sm text-muted-foreground mt-2">Download songs to listen offline</p>
+              <HardDrive className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
+              <p className="text-muted-foreground">No cached songs yet</p>
+              <p className="text-sm text-muted-foreground mt-2">
+                Use "Save Offline" on any song to cache it
+              </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {downloads.map((track) => (
+            <div className="space-y-2">
+              {cachedTracks.map((track) => (
                 <motion.div
                   key={track.videoId}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="glass rounded-xl p-3 cursor-pointer hover:bg-accent transition-colors"
+                  className="flex items-center gap-3 p-3 rounded-xl bg-card border border-border/30 hover:bg-accent transition-colors group"
                 >
-                  <div className="aspect-square rounded-lg overflow-hidden mb-3">
+                  <div 
+                    className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 cursor-pointer"
+                    onClick={() => playTrack(track)}
+                  >
                     <img 
-                      src={track.thumbnail} 
+                      src={track.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${track.videoId}/mqdefault.jpg`}
                       alt={track.title}
                       className="w-full h-full object-cover"
                     />
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Play className="w-5 h-5 text-white fill-current" />
+                    </div>
                   </div>
-                  <h3 className="font-medium text-sm truncate">{track.title}</h3>
-                  <p className="text-xs text-muted-foreground truncate">{track.author}</p>
+                  
+                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => playTrack(track)}>
+                    <h3 className="font-medium text-sm truncate text-foreground">{track.title}</h3>
+                    <p className="text-xs text-muted-foreground truncate">{track.author}</p>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={() => handleDownloadMP3(track)}
+                      disabled={downloadingId === track.videoId}
+                      title="Download as MP3"
+                    >
+                      <FileDown className={`w-4 h-4 ${downloadingId === track.videoId ? 'animate-pulse' : ''}`} />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      onClick={() => handleRemoveCached(track.videoId)}
+                      title="Remove from cache"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </motion.div>
               ))}
             </div>

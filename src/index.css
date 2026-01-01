@@ -47,9 +47,10 @@
     --sidebar-ring: 174 72% 56%;
 
     /* Custom tokens */
-    --gradient-hero: linear-gradient(135deg, hsl(240 10% 4%) 0%, hsl(240 12% 8%) 50%, hsl(200 20% 10%) 100%);
+    --gradient-hero: linear-gradient(135deg, hsl(240 10% 4%) 0%, hsl(200 30% 8%) 50%, hsl(174 30% 10%) 100%);
     --gradient-card: linear-gradient(180deg, hsl(240 10% 8% / 0.8) 0%, hsl(240 10% 6% / 0.9) 100%);
     --gradient-glow: radial-gradient(ellipse at center, hsl(174 72% 56% / 0.15) 0%, transparent 70%);
+    --gradient-teal: linear-gradient(135deg, hsl(174 50% 20% / 0.3) 0%, hsl(190 40% 15% / 0.2) 100%);
     --shadow-glow: 0 0 60px hsl(174 72% 56% / 0.2);
     --shadow-card: 0 8px 32px hsl(0 0% 0% / 0.4);
     
@@ -57,6 +58,10 @@
     --player-progress: 174 72% 56%;
     
     --font-display: 'Outfit', system-ui, sans-serif;
+    
+    /* Dynamic theme variables (set by JS) */
+    --dynamic-primary: 174 72% 56%;
+    --dynamic-bg: var(--gradient-hero);
   }
 
   .dark {
@@ -89,13 +94,31 @@
   }
 
   .glass {
-    @apply backdrop-blur-xl;
-    background: var(--gradient-card);
-    box-shadow: var(--shadow-card);
+    @apply backdrop-blur-xl rounded-2xl;
+    background: linear-gradient(135deg, hsl(240 10% 10% / 0.7) 0%, hsl(240 10% 6% / 0.8) 100%);
+    box-shadow: 
+      var(--shadow-card),
+      inset 0 1px 1px hsl(0 0% 100% / 0.05),
+      0 0 40px hsl(174 72% 56% / 0.05);
+    border: 1px solid hsl(174 50% 30% / 0.15);
+  }
+
+  .glass-teal {
+    @apply backdrop-blur-xl rounded-2xl;
+    background: linear-gradient(135deg, hsl(174 30% 12% / 0.6) 0%, hsl(190 25% 8% / 0.7) 100%);
+    box-shadow: 
+      0 8px 32px hsl(0 0% 0% / 0.3),
+      inset 0 1px 1px hsl(174 72% 56% / 0.1),
+      0 0 60px hsl(174 72% 56% / 0.1);
+    border: 1px solid hsl(174 50% 40% / 0.2);
   }
 
   .glow {
     box-shadow: var(--shadow-glow);
+  }
+
+  .glow-teal {
+    box-shadow: 0 0 40px hsl(174 72% 56% / 0.3), 0 0 80px hsl(174 72% 56% / 0.1);
   }
 
   .scrollbar-thin {
@@ -146,7 +169,7 @@
 
   .player-glass {
     @apply backdrop-blur-xl border-t border-border;
-    background: hsl(var(--player-bg) / 0.95);
+    background: linear-gradient(180deg, hsl(var(--player-bg) / 0.98) 0%, hsl(var(--player-bg)) 100%);
   }
 
   .progress-track {
@@ -172,5 +195,13 @@
 
   .nav-link.active {
     @apply bg-primary/10 text-primary;
+  }
+
+  /* Dynamic theme background */
+  .dynamic-theme-bg {
+    background: 
+      radial-gradient(ellipse at top left, hsl(var(--dynamic-primary) / 0.15) 0%, transparent 50%),
+      radial-gradient(ellipse at bottom right, hsl(174 72% 56% / 0.1) 0%, transparent 50%),
+      var(--gradient-hero);
   }
 }
