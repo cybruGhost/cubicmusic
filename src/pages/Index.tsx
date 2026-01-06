@@ -9,6 +9,7 @@ import { MoodChips } from '@/components/MoodChips';
 import { FullscreenLyrics } from '@/components/lyrics/FullscreenLyrics';
 import { LibraryView } from '@/components/LibraryView';
 import { ExploreView } from '@/components/ExploreView';
+import { SamplesView } from '@/components/SamplesView';
 import { SettingsPage } from '@/components/SettingsPage';
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
 import { SearchPage } from '@/components/SearchPage';
@@ -182,6 +183,8 @@ export default function Index() {
           <div className="p-6 pb-28 space-y-8">
             {showSettings ? (
               <SettingsPage onBack={() => setShowSettings(false)} />
+            ) : activeTab === 'samples' ? (
+              <SamplesView />
             ) : activeTab === 'library' ? (
               <LibraryView onOpenChannel={handleOpenChannel} />
             ) : activeTab === 'explore' ? (

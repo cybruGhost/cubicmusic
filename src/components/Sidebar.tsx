@@ -25,6 +25,7 @@ interface SidebarProps {
 
 const navItems = [
   { id: 'home', icon: Home, label: 'Home' },
+  { id: 'samples', icon: Sparkles, label: 'Samples' },
   { id: 'explore', icon: Compass, label: 'Explore' },
   { id: 'library', icon: Library, label: 'Library' },
 ];
@@ -124,24 +125,6 @@ export function Sidebar({ activeTab, onTabChange, onSignInClick, onSettingsClick
           ))}
         </ul>
       </nav>
-
-      {/* Quick Access */}
-      {!collapsed && (
-        <div className="px-5 mt-6">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">
-            Quick Access
-          </p>
-          <div className="space-y-2">
-            <button 
-              onClick={() => handleTabChange('home')}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg bg-gradient-to-r from-primary/10 to-primary/5 hover:from-primary/20 hover:to-primary/10 transition-all group"
-            >
-              <Sparkles className="w-4 h-4 text-primary group-hover:scale-110 transition-transform" />
-              <span className="text-sm text-foreground">Discover</span>
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Spacer */}
       <div className="flex-1" />
