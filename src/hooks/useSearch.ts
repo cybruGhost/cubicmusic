@@ -49,7 +49,10 @@ export function useSearch() {
     }
   }, [search]);
 
-  const videos = results.filter((r): r is Video => r.type === 'video');
+  // Filter for music only - exclude long playlists/mixes (over 10 minutes)
+  const videos = results
+    .filter((r): r is Video => r.type === 'video')
+    .filter(v => !v.lengthSeconds || v.lengthSeconds < 600); // Under 10 min = likely a song
 
   return {
     results,
