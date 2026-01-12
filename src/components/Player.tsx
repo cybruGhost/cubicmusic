@@ -103,11 +103,13 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
   const autoFetchLock = useRef(false);
   const lastAutoFetchKey = useRef<string | null>(null);
 
+  // Improved Radio auto-fetch - proactively keeps queue filled
   useEffect(() => {
     if (!autoFetchEnabled || !currentTrack) return;
 
-    // Prefetch when queue is getting low during playback
-    if (queue.length >= 3) return;
+    // Prefetch when queue is getting low (less than 5 tracks)
+    if (queue.length >= 5) return;
+    
     const key = `${currentTrack.videoId}:${queue.length}`;
     if (autoFetchLock.current || lastAutoFetchKey.current === key) return;
 
@@ -124,8 +126,16 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
           ...queue.map(q => q.videoId),
         ]);
 
-        const toAdd = related.filter(v => !existingIds.has(v.videoId)).slice(0, 8);
-        toAdd.forEach(t => addToQueue(t));
+        // Filter to music only (1-10 min) and add up to 10 tracks
+        const toAdd = related
+          .filter(v => !existingIds.has(v.videoId))
+          .filter(v => v.lengthSeconds > 60 && v.lengthSeconds < 600)
+          .slice(0, 10);
+        
+        if (toAdd.length > 0) {
+          toAdd.forEach(t => addToQueue(t));
+          console.log(`[Radio] Added ${toAdd.length} related tracks to queue`);
+        }
       } finally {
         autoFetchLock.current = false;
       }
@@ -173,40 +183,69 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
     setLiked(!liked);
   };
 
-  // Fixed download function without CORS issues
+  // Improved download function - fetches and downloads actual audio file
   const handleDownload = async () => {
     if (!currentTrack || isDownloading) return;
     
     setIsDownloading(true);
-    toast.info('Preparing download...');
+    toast.info('Preparing download...', { duration: 10000 });
     
     try {
       const apiUrl = `https://yt.omada.cafe/api/v1/videos/${currentTrack.videoId}`;
       const response = await fetch(apiUrl);
       const data = await response.json();
       
-      // Find best audio format
-      const audioFormat = data.adaptiveFormats?.find((f: any) => 
-        f.type?.startsWith('audio/') && (f.encoding === 'opus' || f.encoding === 'aac' || f.type?.includes('mp4'))
-      ) || data.adaptiveFormats?.find((f: any) => f.type?.startsWith('audio/'));
+      // Find best audio format - prioritize m4a/aac for better compatibility
+      const audioFormats = (data.adaptiveFormats || []).filter((f: any) => 
+        f.type?.startsWith('audio/')
+      );
+      
+      // Sort by bitrate (highest first)
+      audioFormats.sort((a: any, b: any) => {
+        const bitrateA = parseInt(a.bitrate) || 0;
+        const bitrateB = parseInt(b.bitrate) || 0;
+        return bitrateB - bitrateA;
+      });
+      
+      // Prefer m4a/mp4 audio for better compatibility
+      const audioFormat = audioFormats.find((f: any) => 
+        f.type?.includes('mp4') || f.container === 'm4a'
+      ) || audioFormats[0];
       
       if (!audioFormat?.url) {
         throw new Error('No audio format found');
       }
 
+      // Fetch the actual audio file
+      const audioResponse = await fetch(audioFormat.url);
+      if (!audioResponse.ok) {
+        throw new Error('Failed to fetch audio');
+      }
+      
+      const blob = await audioResponse.blob();
+      const url = URL.createObjectURL(blob);
+      
+      // Determine file extension
+      const extension = audioFormat.container || (audioFormat.type?.includes('webm') ? 'webm' : 'm4a');
+      const fileName = `${currentTrack.title.replace(/[^\w\s-]/gi, '').trim()}.${extension}`;
+      
       // Create download link
       const link = document.createElement('a');
-      link.href = audioFormat.url;
-      link.download = `${currentTrack.title.replace(/[^\w\s-]/gi, '')}.mp3`;
-      link.target = '_blank';
+      link.href = url;
+      link.download = fileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       
-      toast.success('Download started!');
+      // Cleanup
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      
+      toast.success('Download complete!');
     } catch (error) {
       console.error('Download error:', error);
-      toast.error('Download failed');
+      // Fallback: open in new tab
+      toast.error('Direct download failed. Opening in new tab...');
+      window.open(`https://www.youtube.com/watch?v=${currentTrack.videoId}`, '_blank');
     } finally {
       setIsDownloading(false);
     }

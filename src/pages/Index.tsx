@@ -6,6 +6,7 @@ import { Player } from '@/components/Player';
 import { MusicGrid } from '@/components/MusicGrid';
 import { QuickPicks } from '@/components/QuickPicks';
 import { MoodChips } from '@/components/MoodChips';
+import { HomePageSections } from '@/components/HomePageSections';
 import { FullscreenLyrics } from '@/components/lyrics/FullscreenLyrics';
 import { LibraryView } from '@/components/LibraryView';
 import { ExploreView } from '@/components/ExploreView';
@@ -203,6 +204,9 @@ export default function Index() {
                     <QuickPicks videos={videos} onOpenChannel={handleOpenChannel} />
                   </section>
                 )}
+
+                {/* Home Page Sections: Albums, Featured, Music Videos, New Releases */}
+                <HomePageSections onOpenChannel={handleOpenChannel} />
 
                 {/* Main Grid */}
                 <section>
