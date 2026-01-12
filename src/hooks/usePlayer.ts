@@ -14,9 +14,9 @@ interface AudioFormat {
   audioSampleRate?: number;
 }
 
-async function getAudioStreamUrl(videoId: string): Promise<string | null> {
+async function getAudioStreamUrl(videoId: string, signal?: AbortSignal): Promise<string | null> {
   try {
-    const response = await fetch(`${API_BASE}/videos/${videoId}?local=true`);
+    const response = await fetch(`${API_BASE}/videos/${videoId}?local=true`, { signal });
     if (!response.ok) throw new Error('Failed to fetch video info');
     
     const data = await response.json();
@@ -24,6 +24,7 @@ async function getAudioStreamUrl(videoId: string): Promise<string | null> {
     const adaptiveFormats: AudioFormat[] = data.adaptiveFormats || [];
     const audioFormats = adaptiveFormats.filter(f => f.type?.startsWith('audio/'));
     
+    // Sort by bitrate (highest first)
     audioFormats.sort((a, b) => {
       const bitrateA = parseInt(a.bitrate) || 0;
       const bitrateB = parseInt(b.bitrate) || 0;
@@ -41,7 +42,11 @@ async function getAudioStreamUrl(videoId: string): Promise<string | null> {
     
     return null;
   } catch (error) {
-    console.error('Error fetching audio stream:', error);
+    if ((error as Error).name === 'AbortError') {
+      console.log('[Player] Fetch aborted for:', videoId);
+      return null;
+    }
+    console.error('[Player] Error fetching audio stream:', error);
     return null;
   }
 }
@@ -54,7 +59,8 @@ interface ExtendedPlayerState extends PlayerState {
 
 export function usePlayer() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const queueIndexRef = useRef<number>(-1);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const isLoadingRef = useRef(false);
   
   const [state, setState] = useState<ExtendedPlayerState>({
     currentTrack: null,
@@ -75,6 +81,7 @@ export function usePlayer() {
     if (!audioRef.current) {
       audioRef.current = new Audio();
       audioRef.current.volume = state.volume / 100;
+      audioRef.current.preload = 'auto';
       
       audioRef.current.addEventListener('loadedmetadata', () => {
         setState(s => ({ ...s, duration: audioRef.current?.duration || 0 }));
@@ -94,28 +101,21 @@ export function usePlayer() {
         if (repeat === 'one') {
           if (audioRef.current) {
             audioRef.current.currentTime = 0;
-            audioRef.current.play().catch(console.error);
+            audioRef.current.play().catch(() => {});
           }
           return;
         }
         
         if (queue.length > 0) {
-          let nextIndex: number;
+          let nextIndex = 0;
           
-          if (shuffle) {
-            nextIndex = Math.floor(Math.random() * queue.length);
-          } else {
-            nextIndex = 0;
-          }
-          
-          const [next, ...rest] = queue;
           if (shuffle && queue.length > 1) {
-            const shuffledQueue = [...queue];
-            const selectedTrack = shuffledQueue.splice(nextIndex, 1)[0];
-            playTrackInternal(selectedTrack, shuffledQueue);
-          } else {
-            playTrackInternal(next, rest);
+            nextIndex = Math.floor(Math.random() * queue.length);
           }
+          
+          const newQueue = [...queue];
+          const nextTrack = newQueue.splice(nextIndex, 1)[0];
+          playTrackInternal(nextTrack, newQueue);
         } else if (repeat === 'all' && stateRef.current.history.length > 0) {
           const historyQueue = [...stateRef.current.history];
           const [first, ...rest] = historyQueue;
@@ -134,8 +134,17 @@ export function usePlayer() {
       });
       
       audioRef.current.addEventListener('error', (e) => {
-        console.error('Audio playback error:', e);
+        console.error('[Player] Audio playback error:', e);
         setState(s => ({ ...s, isPlaying: false }));
+      });
+
+      audioRef.current.addEventListener('canplay', () => {
+        if (audioRef.current && !audioRef.current.paused) return;
+        // Auto-play when ready
+        if (isLoadingRef.current && audioRef.current) {
+          audioRef.current.play().catch(() => {});
+          isLoadingRef.current = false;
+        }
       });
     }
 
@@ -144,32 +153,63 @@ export function usePlayer() {
         audioRef.current.pause();
         audioRef.current.src = '';
       }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
   }, []);
 
   const playTrackInternal = useCallback(async (track: Video, newQueue?: Video[]) => {
+    // Abort any previous fetch
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+    
+    // Stop current playback immediately
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+    }
+    
+    isLoadingRef.current = true;
+    
     setState(s => ({ 
       ...s, 
       currentTrack: track, 
       isPlaying: false, 
       currentTime: 0,
+      duration: 0,
       history: s.currentTrack ? [...s.history.filter(h => h.videoId !== s.currentTrack!.videoId), s.currentTrack] : s.history,
       ...(newQueue !== undefined ? { queue: newQueue } : {})
     }));
     
-    const audioUrl = await getAudioStreamUrl(track.videoId);
-    
-    if (audioUrl && audioRef.current) {
-      audioRef.current.src = audioUrl;
-      audioRef.current.load();
+    try {
+      const audioUrl = await getAudioStreamUrl(track.videoId, abortControllerRef.current.signal);
       
-      try {
-        await audioRef.current.play();
-      } catch (err) {
-        console.error('Playback failed:', err);
+      if (audioUrl && audioRef.current) {
+        audioRef.current.src = audioUrl;
+        audioRef.current.load();
+        
+        // Wait for the audio to be ready, then play
+        const playPromise = audioRef.current.play();
+        if (playPromise) {
+          playPromise.catch((err) => {
+            // Ignore AbortError - it's expected when switching tracks quickly
+            if (err.name !== 'AbortError') {
+              console.error('[Player] Playback failed:', err);
+            }
+          });
+        }
+      } else if (!audioUrl) {
+        console.error('[Player] No audio stream found for:', track.videoId);
+        isLoadingRef.current = false;
       }
-    } else {
-      console.error('No audio stream found for:', track.videoId);
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        console.error('[Player] Error loading track:', error);
+      }
+      isLoadingRef.current = false;
     }
   }, []);
 
@@ -189,7 +229,7 @@ export function usePlayer() {
     if (stateRef.current.isPlaying) {
       audioRef.current.pause();
     } else {
-      audioRef.current.play().catch(console.error);
+      audioRef.current.play().catch(() => {});
     }
   }, []);
 
@@ -208,7 +248,17 @@ export function usePlayer() {
   }, []);
 
   const addToQueue = useCallback((track: Video) => {
-    setState(s => ({ ...s, queue: [...s.queue, track] }));
+    setState(s => {
+      // Prevent duplicates in queue
+      if (s.queue.some(t => t.videoId === track.videoId)) {
+        return s;
+      }
+      // Also prevent adding current track
+      if (s.currentTrack?.videoId === track.videoId) {
+        return s;
+      }
+      return { ...s, queue: [...s.queue, track] };
+    });
   }, []);
 
   const playNext = useCallback(() => {
@@ -275,7 +325,14 @@ export function usePlayer() {
       const related = await getRelatedVideos(videoId);
       // Remove duplicates and current track
       const currentId = stateRef.current.currentTrack?.videoId;
-      const unique = related.filter(v => v.videoId !== currentId);
+      const queueIds = new Set(stateRef.current.queue.map(t => t.videoId));
+      
+      const unique = related.filter(v => {
+        if (v.videoId === currentId) return false;
+        if (queueIds.has(v.videoId)) return false;
+        return true;
+      });
+      
       const seen = new Set<string>();
       return unique.filter(v => {
         if (seen.has(v.videoId)) return false;
@@ -283,7 +340,7 @@ export function usePlayer() {
         return true;
       });
     } catch (e) {
-      console.error('fetchRelatedTracks failed:', e);
+      console.error('[Player] fetchRelatedTracks failed:', e);
       return [];
     }
   }, []);
