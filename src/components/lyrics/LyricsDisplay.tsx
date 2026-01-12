@@ -10,9 +10,11 @@ import { fetchLyrics } from '@/lib/lyrics';
 interface LyricsDisplayProps {
   videoId: string;
   currentTime: number;
+  title?: string;
+  artist?: string;
 }
 
-export function LyricsDisplay({ videoId, currentTime }: LyricsDisplayProps) {
+export function LyricsDisplay({ videoId, currentTime, title, artist }: LyricsDisplayProps) {
   const [lyrics, setLyrics] = useState<LyricsData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>();
@@ -25,7 +27,8 @@ export function LyricsDisplay({ videoId, currentTime }: LyricsDisplayProps) {
     setError(undefined);
     setLyrics(null);
     
-    fetchLyrics(videoId)
+    // Try with videoId first, then fallback to title/artist
+    fetchLyrics(videoId, title, artist)
       .then(data => {
         setLyrics(data);
         if (!data) {
@@ -34,7 +37,7 @@ export function LyricsDisplay({ videoId, currentTime }: LyricsDisplayProps) {
       })
       .catch(() => setError('Failed to load lyrics'))
       .finally(() => setIsLoading(false));
-  }, [videoId]);
+  }, [videoId, title, artist]);
 
   const hasSyncedLyrics = !!lyrics?.syncedLyrics;
 
