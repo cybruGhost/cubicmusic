@@ -15,7 +15,14 @@ interface LrcLibResponse {
 async function fetchFromSimpMusic(videoId: string): Promise<LyricsData | null> {
   try {
     console.log('[Lyrics] Fetching from SimpMusic for videoId:', videoId);
-    const response = await fetch(`${SIMPMUSIC_API}/${videoId}?limit=10`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    const response = await fetch(`${SIMPMUSIC_API}/${videoId}?limit=10`, {
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    
     if (!response.ok) return null;
     
     const data = await response.json();
@@ -39,7 +46,11 @@ async function fetchFromSimpMusic(videoId: string): Promise<LyricsData | null> {
     
     return null;
   } catch (error) {
-    console.error('[Lyrics] SimpMusic fetch error:', error);
+    if ((error as Error).name === 'AbortError') {
+      console.log('[Lyrics] SimpMusic request timed out');
+    } else {
+      console.error('[Lyrics] SimpMusic fetch error:', error);
+    }
     return null;
   }
 }
@@ -48,12 +59,19 @@ async function fetchFromSimpMusic(videoId: string): Promise<LyricsData | null> {
 async function fetchFromLrcLib(trackName: string, artistName: string): Promise<LyricsData | null> {
   try {
     console.log('[Lyrics] Fetching from LrcLib:', trackName, 'by', artistName);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     const params = new URLSearchParams({
       track_name: trackName,
       artist_name: artistName,
     });
     
-    const response = await fetch(`${LRCLIB_API}/get?${params}`);
+    const response = await fetch(`${LRCLIB_API}/get?${params}`, {
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    
     if (!response.ok) return null;
     
     const data: LrcLibResponse = await response.json();
@@ -69,7 +87,11 @@ async function fetchFromLrcLib(trackName: string, artistName: string): Promise<L
     
     return null;
   } catch (error) {
-    console.error('[Lyrics] LrcLib fetch error:', error);
+    if ((error as Error).name === 'AbortError') {
+      console.log('[Lyrics] LrcLib request timed out');
+    } else {
+      console.error('[Lyrics] LrcLib fetch error:', error);
+    }
     return null;
   }
 }
@@ -78,10 +100,14 @@ async function fetchFromLrcLib(trackName: string, artistName: string): Promise<L
 async function fetchFromLyricsOvh(trackName: string, artistName: string): Promise<LyricsData | null> {
   try {
     console.log('[Lyrics] Fetching from lyrics.ovh:', trackName, 'by', artistName);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     
     const response = await fetch(
-      `${LYRICS_OVH_API}/${encodeURIComponent(artistName)}/${encodeURIComponent(trackName)}`
+      `${LYRICS_OVH_API}/${encodeURIComponent(artistName)}/${encodeURIComponent(trackName)}`,
+      { signal: controller.signal }
     );
+    clearTimeout(timeoutId);
     
     if (!response.ok) {
       console.log('[Lyrics] Lyrics not found on lyrics.ovh');
@@ -101,7 +127,11 @@ async function fetchFromLyricsOvh(trackName: string, artistName: string): Promis
       source: 'Lyrics.ovh',
     };
   } catch (error) {
-    console.error('[Lyrics] lyrics.ovh fetch error:', error);
+    if ((error as Error).name === 'AbortError') {
+      console.log('[Lyrics] lyrics.ovh request timed out');
+    } else {
+      console.error('[Lyrics] lyrics.ovh fetch error:', error);
+    }
     return null;
   }
 }
@@ -125,26 +155,27 @@ function cleanArtist(artist: string): string {
     .trim();
 }
 
-// Main lyrics fetch function with fallback chain
+// Main lyrics fetch function with fallback chain - fetches from all sources in parallel
 export async function fetchLyrics(videoId: string, title?: string, artist?: string): Promise<LyricsData | null> {
   try {
-    // First try SimpMusic (best for YouTube videos, supports synced)
-    const simpResult = await fetchFromSimpMusic(videoId);
-    if (simpResult) return simpResult;
+    const cleanedTitle = title ? cleanTitle(title) : '';
+    const cleanedArtist = artist ? cleanArtist(artist) : '';
     
-    // If we have title/artist, try other sources
-    if (title && artist) {
-      const cleanedTitle = cleanTitle(title);
-      const cleanedArtist = cleanArtist(artist);
-      
-      // Try LrcLib (supports synced)
-      const lrcLibResult = await fetchFromLrcLib(cleanedTitle, cleanedArtist);
-      if (lrcLibResult) return lrcLibResult;
-      
-      // Try lyrics.ovh (plain only)
-      const lyricsOvhResult = await fetchFromLyricsOvh(cleanedTitle, cleanedArtist);
-      if (lyricsOvhResult) return lyricsOvhResult;
-    }
+    // Fetch from all sources in parallel
+    const [simpResult, lrcLibResult, lyricsOvhResult] = await Promise.all([
+      fetchFromSimpMusic(videoId),
+      cleanedTitle && cleanedArtist ? fetchFromLrcLib(cleanedTitle, cleanedArtist) : Promise.resolve(null),
+      cleanedTitle && cleanedArtist ? fetchFromLyricsOvh(cleanedTitle, cleanedArtist) : Promise.resolve(null),
+    ]);
+    
+    // Prioritize synced lyrics
+    if (simpResult?.syncedLyrics) return simpResult;
+    if (lrcLibResult?.syncedLyrics) return lrcLibResult;
+    
+    // Then any lyrics at all
+    if (simpResult) return simpResult;
+    if (lrcLibResult) return lrcLibResult;
+    if (lyricsOvhResult) return lyricsOvhResult;
     
     return null;
   } catch (error) {
