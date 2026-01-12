@@ -42,13 +42,14 @@ export function FullscreenLyrics({ isOpen, onClose }: FullscreenLyricsProps) {
     setIsLoading(true);
     setLyrics(null);
     
-    fetchLyrics(currentTrack.videoId)
+    // Pass title and artist for better lyrics matching with fallback chain
+    fetchLyrics(currentTrack.videoId, currentTrack.title, currentTrack.author)
       .then(data => {
         setLyrics(data);
       })
       .catch(() => setLyrics(null))
       .finally(() => setIsLoading(false));
-  }, [currentTrack?.videoId, isOpen, lyricsSource]);
+  }, [currentTrack?.videoId, currentTrack?.title, currentTrack?.author, isOpen, lyricsSource]);
 
   const hasSyncedLyrics = !!lyrics?.syncedLyrics;
   const displayPlainLyrics = lyrics?.plainLyrics || 
