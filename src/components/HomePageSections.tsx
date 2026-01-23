@@ -151,14 +151,26 @@ const NEW_RELEASE_QUERIES = [
   'brand new songs today'
 ];
 
-const PERSONALIZED_QUERIES = [
-  'similar to {artist}',
-  '{artist} type beat',
-  'songs like {artist}',
-  'artists similar {artist}'
+// Diverse genres for "For You" section
+const DIVERSE_GENRES = [
+  'pop hits',
+  'hip hop rap songs',
+  'r&b soul music',
+  'rock classics',
+  'electronic dance music',
+  'indie alternative songs',
+  'latin reggaeton',
+  'k-pop hits',
+  'country music songs',
+  'jazz lofi beats'
 ];
 
-export function HomePageSections({ onOpenChannel }: HomePageSectionsProps) {
+interface HomePageSectionsProps {
+  onOpenChannel?: (artistName: string) => void;
+  moodFilter?: string;
+}
+
+export function HomePageSections({ onOpenChannel, moodFilter }: HomePageSectionsProps) {
   const [albums, setAlbums] = useState<VideoType[]>([]);
   const [featured, setFeatured] = useState<VideoType[]>([]);
   const [musicVideos, setMusicVideos] = useState<VideoType[]>([]);
@@ -177,39 +189,45 @@ export function HomePageSections({ onOpenChannel }: HomePageSectionsProps) {
         const preferredArtists = getPreferredArtists();
         const history = getHistory();
         
-        // Build personalized queries based on user data
-        const userArtists = preferredArtists.length > 0 
-          ? preferredArtists.map(a => a.name)
-          : history.slice(0, 10).map(v => v.author);
-        
-        const uniqueArtists = [...new Set(userArtists)].slice(0, 5);
+        // If mood filter is active, search with mood
+        const moodPrefix = moodFilter ? `${moodFilter} ` : '';
         
         // Pick random queries for variety
         const pickRandom = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
         
-        const albumQuery = pickRandom(ALBUM_QUERIES);
-        const featuredQuery = pickRandom(FEATURED_QUERIES);
-        const videoQuery = pickRandom(VIDEO_QUERIES);
-        const newQuery = pickRandom(NEW_RELEASE_QUERIES);
+        const albumQuery = moodPrefix + pickRandom(ALBUM_QUERIES);
+        const featuredQuery = moodPrefix + pickRandom(FEATURED_QUERIES);
+        const videoQuery = moodPrefix + pickRandom(VIDEO_QUERIES);
+        const newQuery = moodPrefix + pickRandom(NEW_RELEASE_QUERIES);
         
-        // Personalized query based on user's artists
-        let personalizedQuery = 'recommended music for you';
-        if (uniqueArtists.length > 0) {
-          const randomArtist = uniqueArtists[Math.floor(Math.random() * uniqueArtists.length)];
-          personalizedQuery = `songs like ${randomArtist}`;
+        // Build DIVERSE "For You" queries - mix genres + user artists
+        const forYouQueries: string[] = [];
+        
+        // Add 2-3 random genres for diversity
+        const shuffledGenres = [...DIVERSE_GENRES].sort(() => Math.random() - 0.5);
+        forYouQueries.push(...shuffledGenres.slice(0, 3).map(g => moodPrefix + g));
+        
+        // Add 1-2 preferred artists if available
+        if (preferredArtists.length > 0) {
+          const shuffledArtists = [...preferredArtists].sort(() => Math.random() - 0.5);
+          forYouQueries.push(...shuffledArtists.slice(0, 2).map(a => `${a.name} songs`));
+        } else if (history.length > 0) {
+          // Use history artists
+          const historyArtists = [...new Set(history.slice(0, 10).map(v => v.author))];
+          forYouQueries.push(...historyArtists.slice(0, 2).map(a => `${a} music`));
         }
         
         // Trending query
-        const trendingQuery = 'trending songs today viral';
+        const trendingQuery = moodPrefix + 'trending songs today viral hits';
 
         // Fetch all in parallel
-        const [albumsRes, featuredRes, videosRes, newRes, personalizedRes, trendingRes] = await Promise.all([
+        const [albumsRes, featuredRes, videosRes, newRes, trendingRes, ...forYouResults] = await Promise.all([
           searchVideos(albumQuery),
           searchVideos(featuredQuery),
           searchVideos(videoQuery),
           searchVideos(newQuery),
-          searchVideos(personalizedQuery),
           searchVideos(trendingQuery),
+          ...forYouQueries.map(q => searchVideos(q)),
         ]);
 
         // Filter to music only (1-10 minutes)
@@ -230,11 +248,25 @@ export function HomePageSections({ onOpenChannel }: HomePageSectionsProps) {
           return result;
         };
 
+        // Merge "For You" results with diversity
+        const forYouMerged: VideoType[] = [];
+        const forYouSeenIds = new Set<string>();
+        forYouResults.forEach(results => {
+          filterMusic(results).forEach(v => {
+            if (!forYouSeenIds.has(v.videoId) && forYouMerged.length < 20) {
+              forYouSeenIds.add(v.videoId);
+              forYouMerged.push(v);
+            }
+          });
+        });
+        // Shuffle for variety
+        const shuffledForYou = forYouMerged.sort(() => Math.random() - 0.5).slice(0, 12);
+
         setAlbums(dedupeAndLimit(albumsRes));
         setFeatured(dedupeAndLimit(featuredRes));
         setMusicVideos(dedupeAndLimit(videosRes));
         setNewReleases(dedupeAndLimit(newRes));
-        setPersonalized(dedupeAndLimit(personalizedRes));
+        setPersonalized(shuffledForYou);
         setTrending(dedupeAndLimit(trendingRes));
       } catch (error) {
         console.error('Error fetching home sections:', error);
@@ -244,7 +276,7 @@ export function HomePageSections({ onOpenChannel }: HomePageSectionsProps) {
     };
 
     fetchSections();
-  }, []);
+  }, [moodFilter]);
 
   const handlePlay = (video: VideoType) => {
     playTrack(video);

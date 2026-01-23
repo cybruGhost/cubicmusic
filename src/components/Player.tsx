@@ -183,7 +183,7 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
     setLiked(!liked);
   };
 
-  // Download function - uses cobalt.tools API to get direct audio download
+  // Download function - multiple fallbacks for reliability
   const handleDownload = async () => {
     if (!currentTrack || isDownloading) return;
     
@@ -191,83 +191,59 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
     const toastId = toast.loading('Preparing download...');
     
     try {
-      // Use cobalt.tools API for reliable audio extraction
-      const cobaltUrl = 'https://api.cobalt.tools/api/json';
-      const videoUrl = `https://www.youtube.com/watch?v=${currentTrack.videoId}`;
+      const videoId = currentTrack.videoId;
+      const safeTitle = currentTrack.title
+        .replace(/[^\w\s-]/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 100);
       
-      const response = await fetch(cobaltUrl, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url: videoUrl,
-          vCodec: 'h264',
-          vQuality: '720',
-          aFormat: 'mp3',
-          isAudioOnly: true,
-          isNoTTWatermark: true,
-          isTTFullAudio: true,
-          disableMetadata: false,
-        }),
-      });
+      // Method 1: Use y2mate API via proxy
+      const apiUrl = `https://pipedapi.kavin.rocks/streams/${videoId}`;
+      
+      const response = await fetch(apiUrl);
+      if (!response.ok) throw new Error('API failed');
       
       const data = await response.json();
       
-      if (data.status === 'stream' || data.status === 'redirect') {
-        const audioUrl = data.url;
-        
-        // Fetch the audio blob
+      // Find best audio stream
+      const audioStreams = data.audioStreams || [];
+      const bestAudio = audioStreams
+        .filter((s: { mimeType?: string }) => s.mimeType?.includes('audio'))
+        .sort((a: { bitrate?: number }, b: { bitrate?: number }) => 
+          (b.bitrate || 0) - (a.bitrate || 0)
+        )[0];
+      
+      if (bestAudio?.url) {
         toast.loading('Downloading audio...', { id: toastId });
         
-        const audioResponse = await fetch(audioUrl);
-        if (!audioResponse.ok) {
-          throw new Error('Failed to fetch audio');
-        }
-        
-        const blob = await audioResponse.blob();
-        const url = URL.createObjectURL(blob);
-        
-        // Create filename
-        const safeTitle = currentTrack.title
-          .replace(/[^\w\s-]/gi, '')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .substring(0, 100);
-        const fileName = `${safeTitle}.mp3`;
-        
-        // Trigger download
+        // Open in new tab for download (avoids CORS)
         const link = document.createElement('a');
-        link.href = url;
-        link.download = fileName;
-        link.style.display = 'none';
+        link.href = bestAudio.url;
+        link.download = `${safeTitle}.${bestAudio.format || 'webm'}`;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         
-        // Cleanup
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
-        
-        toast.success('Download complete!', { id: toastId });
-      } else if (data.status === 'error') {
-        throw new Error(data.text || 'Download failed');
-      } else {
-        throw new Error('Unexpected response from download service');
+        toast.success('Download started!', { id: toastId });
+        return;
       }
+      
+      throw new Error('No audio stream found');
     } catch (error) {
       console.error('Download error:', error);
       
-      // Fallback: Try alternative download method
+      // Fallback: Use loader.to service
       try {
-        toast.loading('Trying alternative download...', { id: toastId });
+        toast.loading('Trying alternative...', { id: toastId });
         
-        // Use y2mate style fallback
-        const fallbackUrl = `https://api.vevioz.com/api/button/mp3/${currentTrack.videoId}`;
+        const fallbackUrl = `https://www.y2mate.com/youtube/${currentTrack.videoId}`;
         window.open(fallbackUrl, '_blank');
         
-        toast.success('Opening download page...', { id: toastId });
-      } catch (fallbackError) {
+        toast.success('Opened download page', { id: toastId });
+      } catch {
         toast.error('Download failed. Please try again.', { id: toastId });
       }
     } finally {

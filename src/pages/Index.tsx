@@ -199,22 +199,22 @@ export default function Index() {
                   <MoodChips onMoodSelect={handleMoodSelect} activeMood={activeMood} />
                 </section>
 
-                {/* Quick Picks */}
+                {/* Quick Picks - pass mood filter */}
                 {videos.length > 0 && (
                   <section className="glass-teal p-6">
                     <QuickPicks videos={videos} onOpenChannel={handleOpenChannel} />
                   </section>
                 )}
 
-                {/* Home Page Sections: Albums, Featured, Music Videos, New Releases */}
-                <HomePageSections onOpenChannel={handleOpenChannel} />
+                {/* Home Page Sections: Pass mood filter so ALL content matches mood */}
+                <HomePageSections onOpenChannel={handleOpenChannel} moodFilter={activeMood} />
 
-                {/* Main Grid */}
+                {/* Main Grid - already filtered by search */}
                 <section>
                   <MusicGrid
                     videos={videos.slice(8)}
                     loading={loading}
-                    title="Recommended for you"
+                    title={activeMood ? `${activeMood.split(' ')[0]} music` : "Recommended for you"}
                     onOpenChannel={handleOpenChannel}
                   />
                 </section>
