@@ -183,69 +183,93 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
     setLiked(!liked);
   };
 
-  // Improved download function - fetches and downloads actual audio file
+  // Download function - uses cobalt.tools API to get direct audio download
   const handleDownload = async () => {
     if (!currentTrack || isDownloading) return;
     
     setIsDownloading(true);
-    toast.info('Preparing download...', { duration: 10000 });
+    const toastId = toast.loading('Preparing download...');
     
     try {
-      const apiUrl = `https://yt.omada.cafe/api/v1/videos/${currentTrack.videoId}`;
-      const response = await fetch(apiUrl);
-      const data = await response.json();
+      // Use cobalt.tools API for reliable audio extraction
+      const cobaltUrl = 'https://api.cobalt.tools/api/json';
+      const videoUrl = `https://www.youtube.com/watch?v=${currentTrack.videoId}`;
       
-      // Find best audio format - prioritize m4a/aac for better compatibility
-      const audioFormats = (data.adaptiveFormats || []).filter((f: any) => 
-        f.type?.startsWith('audio/')
-      );
-      
-      // Sort by bitrate (highest first)
-      audioFormats.sort((a: any, b: any) => {
-        const bitrateA = parseInt(a.bitrate) || 0;
-        const bitrateB = parseInt(b.bitrate) || 0;
-        return bitrateB - bitrateA;
+      const response = await fetch(cobaltUrl, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: videoUrl,
+          vCodec: 'h264',
+          vQuality: '720',
+          aFormat: 'mp3',
+          isAudioOnly: true,
+          isNoTTWatermark: true,
+          isTTFullAudio: true,
+          disableMetadata: false,
+        }),
       });
       
-      // Prefer m4a/mp4 audio for better compatibility
-      const audioFormat = audioFormats.find((f: any) => 
-        f.type?.includes('mp4') || f.container === 'm4a'
-      ) || audioFormats[0];
+      const data = await response.json();
       
-      if (!audioFormat?.url) {
-        throw new Error('No audio format found');
+      if (data.status === 'stream' || data.status === 'redirect') {
+        const audioUrl = data.url;
+        
+        // Fetch the audio blob
+        toast.loading('Downloading audio...', { id: toastId });
+        
+        const audioResponse = await fetch(audioUrl);
+        if (!audioResponse.ok) {
+          throw new Error('Failed to fetch audio');
+        }
+        
+        const blob = await audioResponse.blob();
+        const url = URL.createObjectURL(blob);
+        
+        // Create filename
+        const safeTitle = currentTrack.title
+          .replace(/[^\w\s-]/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .substring(0, 100);
+        const fileName = `${safeTitle}.mp3`;
+        
+        // Trigger download
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Cleanup
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        
+        toast.success('Download complete!', { id: toastId });
+      } else if (data.status === 'error') {
+        throw new Error(data.text || 'Download failed');
+      } else {
+        throw new Error('Unexpected response from download service');
       }
-
-      // Fetch the actual audio file
-      const audioResponse = await fetch(audioFormat.url);
-      if (!audioResponse.ok) {
-        throw new Error('Failed to fetch audio');
-      }
-      
-      const blob = await audioResponse.blob();
-      const url = URL.createObjectURL(blob);
-      
-      // Determine file extension
-      const extension = audioFormat.container || (audioFormat.type?.includes('webm') ? 'webm' : 'm4a');
-      const fileName = `${currentTrack.title.replace(/[^\w\s-]/gi, '').trim()}.${extension}`;
-      
-      // Create download link
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      // Cleanup
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      
-      toast.success('Download complete!');
     } catch (error) {
       console.error('Download error:', error);
-      // Fallback: open in new tab
-      toast.error('Direct download failed. Opening in new tab...');
-      window.open(`https://www.youtube.com/watch?v=${currentTrack.videoId}`, '_blank');
+      
+      // Fallback: Try alternative download method
+      try {
+        toast.loading('Trying alternative download...', { id: toastId });
+        
+        // Use y2mate style fallback
+        const fallbackUrl = `https://api.vevioz.com/api/button/mp3/${currentTrack.videoId}`;
+        window.open(fallbackUrl, '_blank');
+        
+        toast.success('Opening download page...', { id: toastId });
+      } catch (fallbackError) {
+        toast.error('Download failed. Please try again.', { id: toastId });
+      }
     } finally {
       setIsDownloading(false);
     }
