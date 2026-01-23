@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Play, Plus, Disc3, Music2, Video, Sparkles } from 'lucide-react';
+import { Play, Plus, Disc3, Music2, Video, Sparkles, TrendingUp, Globe } from 'lucide-react';
 import { Video as VideoType } from '@/types/music';
 import { searchVideos } from '@/lib/api';
 import { usePlayerContext } from '@/context/PlayerContext';
 import { toast } from 'sonner';
+import { getPreferredArtists, getHistory } from '@/lib/storage';
 
 interface HomePageSectionsProps {
   onOpenChannel?: (artistName: string) => void;
@@ -117,11 +118,53 @@ function SectionRow({
   );
 }
 
+// Better search queries for diverse content
+const ALBUM_QUERIES = [
+  'best albums 2024 full',
+  'top album releases music',
+  'new album songs',
+  'popular album tracks',
+  'grammy albums music'
+];
+
+const FEATURED_QUERIES = [
+  'spotify top 50 songs',
+  'billboard hot 100 songs',
+  'apple music top songs',
+  'viral tiktok songs',
+  'trending playlist hits'
+];
+
+const VIDEO_QUERIES = [
+  'official music video 2024',
+  'new music video premiere',
+  'best music videos hits',
+  'popular artist music video',
+  'vevo music video'
+];
+
+const NEW_RELEASE_QUERIES = [
+  'new music friday',
+  'just released songs',
+  'new singles 2024',
+  'latest music drops',
+  'brand new songs today'
+];
+
+const PERSONALIZED_QUERIES = [
+  'similar to {artist}',
+  '{artist} type beat',
+  'songs like {artist}',
+  'artists similar {artist}'
+];
+
 export function HomePageSections({ onOpenChannel }: HomePageSectionsProps) {
   const [albums, setAlbums] = useState<VideoType[]>([]);
   const [featured, setFeatured] = useState<VideoType[]>([]);
   const [musicVideos, setMusicVideos] = useState<VideoType[]>([]);
   const [newReleases, setNewReleases] = useState<VideoType[]>([]);
+  const [personalized, setPersonalized] = useState<VideoType[]>([]);
+  const [trending, setTrending] = useState<VideoType[]>([]);
   const [loading, setLoading] = useState(true);
   
   const { playTrack, addToQueue } = usePlayerContext();
@@ -130,22 +173,69 @@ export function HomePageSections({ onOpenChannel }: HomePageSectionsProps) {
     const fetchSections = async () => {
       setLoading(true);
       try {
-        // Fetch different content types in parallel
-        const [albumsRes, featuredRes, videosRes, newRes] = await Promise.all([
-          searchVideos('top albums 2024 music'),
-          searchVideos('featured playlist hits music'),
-          searchVideos('official music video 2024'),
-          searchVideos('new music releases 2024'),
+        // Get user preferences for personalized content
+        const preferredArtists = getPreferredArtists();
+        const history = getHistory();
+        
+        // Build personalized queries based on user data
+        const userArtists = preferredArtists.length > 0 
+          ? preferredArtists.map(a => a.name)
+          : history.slice(0, 10).map(v => v.author);
+        
+        const uniqueArtists = [...new Set(userArtists)].slice(0, 5);
+        
+        // Pick random queries for variety
+        const pickRandom = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+        
+        const albumQuery = pickRandom(ALBUM_QUERIES);
+        const featuredQuery = pickRandom(FEATURED_QUERIES);
+        const videoQuery = pickRandom(VIDEO_QUERIES);
+        const newQuery = pickRandom(NEW_RELEASE_QUERIES);
+        
+        // Personalized query based on user's artists
+        let personalizedQuery = 'recommended music for you';
+        if (uniqueArtists.length > 0) {
+          const randomArtist = uniqueArtists[Math.floor(Math.random() * uniqueArtists.length)];
+          personalizedQuery = `songs like ${randomArtist}`;
+        }
+        
+        // Trending query
+        const trendingQuery = 'trending songs today viral';
+
+        // Fetch all in parallel
+        const [albumsRes, featuredRes, videosRes, newRes, personalizedRes, trendingRes] = await Promise.all([
+          searchVideos(albumQuery),
+          searchVideos(featuredQuery),
+          searchVideos(videoQuery),
+          searchVideos(newQuery),
+          searchVideos(personalizedQuery),
+          searchVideos(trendingQuery),
         ]);
 
-        // Filter to music only (under 10 minutes)
+        // Filter to music only (1-10 minutes)
         const filterMusic = (videos: VideoType[]) => 
           videos.filter(v => v.lengthSeconds > 60 && v.lengthSeconds < 600);
 
-        setAlbums(filterMusic(albumsRes).slice(0, 10));
-        setFeatured(filterMusic(featuredRes).slice(0, 10));
-        setMusicVideos(filterMusic(videosRes).slice(0, 10));
-        setNewReleases(filterMusic(newRes).slice(0, 10));
+        // Deduplicate across all sections
+        const seenIds = new Set<string>();
+        const dedupeAndLimit = (videos: VideoType[], limit: number = 12): VideoType[] => {
+          const result: VideoType[] = [];
+          for (const v of filterMusic(videos)) {
+            if (!seenIds.has(v.videoId)) {
+              seenIds.add(v.videoId);
+              result.push(v);
+              if (result.length >= limit) break;
+            }
+          }
+          return result;
+        };
+
+        setAlbums(dedupeAndLimit(albumsRes));
+        setFeatured(dedupeAndLimit(featuredRes));
+        setMusicVideos(dedupeAndLimit(videosRes));
+        setNewReleases(dedupeAndLimit(newRes));
+        setPersonalized(dedupeAndLimit(personalizedRes));
+        setTrending(dedupeAndLimit(trendingRes));
       } catch (error) {
         console.error('Error fetching home sections:', error);
       } finally {
@@ -168,6 +258,24 @@ export function HomePageSections({ onOpenChannel }: HomePageSectionsProps) {
   return (
     <div className="space-y-8">
       <SectionRow
+        title="Trending Now"
+        icon={TrendingUp}
+        videos={trending}
+        onPlay={handlePlay}
+        onAddToQueue={handleAddToQueue}
+        loading={loading}
+      />
+      
+      <SectionRow
+        title="For You"
+        icon={Sparkles}
+        videos={personalized}
+        onPlay={handlePlay}
+        onAddToQueue={handleAddToQueue}
+        loading={loading}
+      />
+      
+      <SectionRow
         title="Albums for you"
         icon={Disc3}
         videos={albums}
@@ -178,7 +286,7 @@ export function HomePageSections({ onOpenChannel }: HomePageSectionsProps) {
       
       <SectionRow
         title="Featured playlists"
-        icon={Sparkles}
+        icon={Globe}
         videos={featured}
         onPlay={handlePlay}
         onAddToQueue={handleAddToQueue}

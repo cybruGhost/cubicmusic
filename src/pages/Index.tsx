@@ -121,9 +121,10 @@ export default function Index() {
     }
   }, [initialized, search, showOnboarding]);
 
-  const handleMoodSelect = useCallback((mood: string) => {
-    setActiveMood(mood);
-    search(`${mood} music playlist`);
+  const handleMoodSelect = useCallback((moodQuery: string) => {
+    setActiveMood(moodQuery);
+    // The mood now passes the full search query directly
+    search(moodQuery);
   }, [search]);
 
   const handleTabChange = (tab: string) => {

@@ -25,6 +25,20 @@ function stableHash(input: string, seed: number): number {
   return h >>> 0;
 }
 
+// Diverse discovery queries for better recommendations
+const DISCOVERY_QUERIES = [
+  'top songs 2024',
+  'best music hits',
+  'popular songs playlist',
+  'viral music 2024',
+  'trending hits today',
+  'new music weekly',
+  'best of 2024 music',
+  'chart topping songs',
+  'most streamed songs',
+  'hit songs today'
+];
+
 export function QuickPicks({ videos, onOpenChannel }: QuickPicksProps) {
   const { playAll, currentTrack } = usePlayerContext();
   const [mode, setMode] = useState<QuickPickMode>('mashup');
@@ -41,14 +55,30 @@ export function QuickPicks({ videos, onOpenChannel }: QuickPicksProps) {
       try {
         const preferredArtists = getPreferredArtists();
         const history = getHistory();
+        const stats = getStats();
         
-        // Build search queries from user data
+        // Build diverse search queries from user data
         const queries: string[] = [];
         
-        // Add preferred artists
+        // Add preferred artists with variety
         if (preferredArtists.length > 0) {
           const shuffledArtists = [...preferredArtists].sort(() => Math.random() - 0.5);
-          queries.push(...shuffledArtists.slice(0, 2).map(a => `${a.name} music`));
+          const topArtists = shuffledArtists.slice(0, 3);
+          
+          topArtists.forEach(artist => {
+            const queryTypes = [
+              `${artist.name} top songs`,
+              `${artist.name} best hits`,
+              `${artist.name} music`,
+            ];
+            queries.push(queryTypes[Math.floor(Math.random() * queryTypes.length)]);
+          });
+        }
+        
+        // Add based on top artists from stats
+        if (stats.topArtists && stats.topArtists.length > 0) {
+          const topArtist = stats.topArtists[0];
+          queries.push(`similar to ${topArtist.name} music`);
         }
         
         // Add based on recent history genres/artists
@@ -58,23 +88,24 @@ export function QuickPicks({ videos, onOpenChannel }: QuickPicksProps) {
           queries.push(...shuffledAuthors.slice(0, 2).map(a => `${a} songs`));
         }
         
-        // Add some discovery queries
-        const discoveryQueries = [
-          'new music 2024',
-          'trending songs',
-          'top hits music',
-          'popular songs today',
-          'viral music hits'
-        ];
-        const randomDiscovery = discoveryQueries[Math.floor(Math.random() * discoveryQueries.length)];
-        queries.push(randomDiscovery);
+        // Add discovery queries for variety
+        const shuffledDiscovery = [...DISCOVERY_QUERIES].sort(() => Math.random() - 0.5);
+        queries.push(...shuffledDiscovery.slice(0, 2));
         
-        // Fetch from multiple queries
+        // Fetch from multiple queries (max 4 for performance)
+        const queriesToFetch = queries.slice(0, 4);
         const allResults: Video[] = [];
-        for (const query of queries.slice(0, 3)) {
-          const results = await searchApi(query);
-          const musicVideos = results.filter((r): r is Video => r.type === 'video');
-          allResults.push(...musicVideos);
+        
+        for (const query of queriesToFetch) {
+          try {
+            const results = await searchApi(query);
+            const musicVideos = results
+              .filter((r): r is Video => r.type === 'video')
+              .filter(v => v.lengthSeconds > 60 && v.lengthSeconds < 600); // Music only
+            allResults.push(...musicVideos);
+          } catch (e) {
+            console.error(`Failed to fetch ${query}:`, e);
+          }
         }
         
         // Deduplicate
@@ -136,8 +167,8 @@ export function QuickPicks({ videos, onOpenChannel }: QuickPicksProps) {
         const allCandidates: Video[] = [
           ...freshMusic,  // Fresh fetched music
           ...videos,
-          ...history.slice(0, 15),
-          ...favorites.slice(0, 10),
+          ...history.slice(0, 20),
+          ...favorites.slice(0, 15),
           ...playlists.flatMap(p => p.tracks.slice(0, 5))
         ];
 
@@ -153,55 +184,56 @@ export function QuickPicks({ videos, onOpenChannel }: QuickPicksProps) {
         uniqueVideos.forEach((video, videoId) => {
           let score = 0;
 
-          // Fresh music gets a boost
+          // Fresh music gets a significant boost
           if (freshMusic.some(f => f.videoId === videoId)) {
-            score += 40;
+            score += 50;
           }
 
-          // Artist preference score
-          const artistData = preferredArtists.find(a => 
-            video.author.toLowerCase().includes(a.name.toLowerCase()) ||
-            a.name.toLowerCase().includes(video.author.toLowerCase())
-          );
+          // Artist preference score (strongest signal)
+          const artistData = preferredArtists.find(a => {
+            const artistLower = a.name.toLowerCase();
+            const authorLower = video.author.toLowerCase();
+            return authorLower.includes(artistLower) || artistLower.includes(authorLower);
+          });
           if (artistData) {
-            score += weights.artistWeight * 80;
-            score += (artistData.playCount || 0) * 2;
+            score += weights.artistWeight * 100;
+            score += Math.min((artistData.playCount || 0) * 3, 30);
           }
 
           // History recency score (lower weight to mix in new stuff)
           const historyIndex = history.findIndex(h => h.videoId === videoId);
           if (historyIndex >= 0) {
-            score += weights.historyWeight * (30 - historyIndex);
+            score += weights.historyWeight * Math.max(0, 40 - historyIndex * 2);
           }
 
-          // Stats score
+          // Stats score from top tracks
           const trackStat = stats.topTracks.find(t => t.videoId === videoId);
           if (trackStat) {
-            score += weights.statsWeight * trackStat.plays * 3;
+            score += weights.statsWeight * Math.min(trackStat.plays * 5, 40);
           }
 
           // Favorite bonus
           if (favorites.some(f => f.videoId === videoId)) {
-            score += 25;
+            score += 35;
           }
 
           // Playlist bonus
           const inPlaylist = playlists.some(p => p.tracks.some(v => v.videoId === videoId));
           if (inPlaylist) {
-            score += 15;
+            score += 20;
           }
 
-          // Random exploration factor
-          score += weights.explorationWeight * (stableHash(videoId, seed) % 60);
+          // Random exploration factor for variety
+          score += weights.explorationWeight * (stableHash(videoId, seed) % 50);
 
           scored.set(videoId, { video, score });
         });
 
-        // Sort by score with randomization
+        // Sort by score with slight randomization
         const sortedVideos = Array.from(scored.values())
           .sort((a, b) => {
-            const randomA = stableHash(a.video.videoId, seed) % 25;
-            const randomB = stableHash(b.video.videoId, seed) % 25;
+            const randomA = stableHash(a.video.videoId, seed) % 20;
+            const randomB = stableHash(b.video.videoId, seed) % 20;
             return (b.score + randomB) - (a.score + randomA);
           })
           .slice(0, 8)
