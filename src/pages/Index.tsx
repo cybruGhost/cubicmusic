@@ -3,10 +3,8 @@ import { Search } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import { Sidebar } from '@/components/Sidebar';
 import { Player } from '@/components/Player';
-import { MusicGrid } from '@/components/MusicGrid';
-import { QuickPicks } from '@/components/QuickPicks';
 import { MoodChips } from '@/components/MoodChips';
-import { HomePageSections } from '@/components/HomePageSections';
+import { HomeContent } from '@/components/home';
 import { FullscreenLyrics } from '@/components/lyrics/FullscreenLyrics';
 import { LibraryView } from '@/components/LibraryView';
 import { ExploreView } from '@/components/ExploreView';
@@ -15,9 +13,8 @@ import { SettingsPage } from '@/components/SettingsPage';
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
 import { SearchPage } from '@/components/SearchPage';
 import { ChannelInfo } from '@/components/ChannelInfo';
-import { useSearch } from '@/hooks/useSearch';
 import { usePlayerContext } from '@/context/PlayerContext';
-import { getPreferredArtists, hasCompletedOnboarding, getGreeting } from '@/lib/storage';
+import { hasCompletedOnboarding, getGreeting } from '@/lib/storage';
 import { toast } from 'sonner';
 
 // Extract dominant color from image
@@ -75,13 +72,11 @@ function extractColor(img: HTMLImageElement): string {
 export default function Index() {
   const [activeTab, setActiveTab] = useState('home');
   const [activeMood, setActiveMood] = useState<string>();
-  const [initialized, setInitialized] = useState(false);
   const [showLyrics, setShowLyrics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [channelArtist, setChannelArtist] = useState<string | null>(null);
-  const { videos, loading, search } = useSearch();
   const { currentTrack } = usePlayerContext();
 
   // Dynamic theme based on current track
@@ -105,27 +100,9 @@ export default function Index() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!initialized && !showOnboarding) {
-      const preferredArtists = getPreferredArtists();
-      if (preferredArtists.length > 0) {
-        const shuffled = [...preferredArtists].sort(() => Math.random() - 0.5);
-        const selected = shuffled.slice(0, 3);
-        search(selected.join(' '));
-      } else {
-        const defaultArtists = ['Taylor Swift', 'Drake', 'The Weeknd', 'Ed Sheeran', 'Dua Lipa', 'Bad Bunny', 'BTS', 'Billie Eilish'];
-        const shuffled = [...defaultArtists].sort(() => Math.random() - 0.5);
-        search(shuffled.slice(0, 3).join(' '));
-      }
-      setInitialized(true);
-    }
-  }, [initialized, search, showOnboarding]);
-
   const handleMoodSelect = useCallback((moodQuery: string) => {
     setActiveMood(moodQuery);
-    // The mood now passes the full search query directly
-    search(moodQuery);
-  }, [search]);
+  }, []);
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
@@ -138,7 +115,6 @@ export default function Index() {
 
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
-    setInitialized(false);
   };
 
   const handleOpenChannel = (artistName: string) => {
@@ -199,25 +175,8 @@ export default function Index() {
                   <MoodChips onMoodSelect={handleMoodSelect} activeMood={activeMood} />
                 </section>
 
-                {/* Quick Picks - pass mood filter */}
-                {videos.length > 0 && (
-                  <section className="glass-teal p-6">
-                    <QuickPicks videos={videos} onOpenChannel={handleOpenChannel} />
-                  </section>
-                )}
-
-                {/* Home Page Sections: Pass mood filter so ALL content matches mood */}
-                <HomePageSections onOpenChannel={handleOpenChannel} moodFilter={activeMood} />
-
-                {/* Main Grid - already filtered by search */}
-                <section>
-                  <MusicGrid
-                    videos={videos.slice(8)}
-                    loading={loading}
-                    title={activeMood ? `${activeMood.split(' ')[0]} music` : "Recommended for you"}
-                    onOpenChannel={handleOpenChannel}
-                  />
-                </section>
+                {/* Home Content with all sections */}
+                <HomeContent onOpenChannel={handleOpenChannel} moodFilter={activeMood} />
               </>
             )}
           </div>
