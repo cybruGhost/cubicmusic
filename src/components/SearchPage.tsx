@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ArrowLeft, Search, Music, User, Film, X, Clock } from 'lucide-react';
+import { ArrowLeft, Search, Music, User, Film, X, Clock, Disc, ListMusic, PlayCircle, Shuffle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Video, Channel, SearchResult } from '@/types/music';
+import { Video, Channel, SearchResult, Playlist } from '@/types/music';
 import { MusicCard } from '@/components/MusicCard';
+import { usePlayerContext } from '@/context/PlayerContext';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -33,16 +34,31 @@ const clearRecentSearches = () => {
   localStorage.removeItem(RECENT_SEARCHES_KEY);
 };
 
-type CategoryType = 'all' | 'songs' | 'videos' | 'channels';
+type CategoryType = 'top' | 'songs' | 'videos' | 'artists' | 'playlists' | 'albums';
+
+function formatPlays(count: number): string {
+  if (count >= 1000000000) return `${(count / 1000000000).toFixed(1)}bn plays`;
+  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}m plays`;
+  if (count >= 1000) return `${(count / 1000).toFixed(1)}k plays`;
+  return `${count} plays`;
+}
+
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
 
 export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
+  const { playTrack, playAll } = usePlayerContext();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
-  const [category, setCategory] = useState<CategoryType>('songs');
+  const [category, setCategory] = useState<CategoryType>('top');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [artistInfo, setArtistInfo] = useState<Channel | null>(null);
 
   // Load recent searches on mount
   useEffect(() => {
@@ -88,6 +104,14 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
       if (!res.ok) throw new Error('Search failed');
       const data = await res.json();
       setResults(data);
+      
+      // Check if this is an artist search - look for a channel result
+      const channelResult = data.find((r: SearchResult) => r.type === 'channel');
+      if (channelResult) {
+        setArtistInfo(channelResult as Channel);
+      } else {
+        setArtistInfo(null);
+      }
     } catch (error) {
       toast.error('Search failed');
       setResults([]);
@@ -124,28 +148,56 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
         });
       case 'videos':
         return results.filter((r): r is Video => r.type === 'video' && r.lengthSeconds >= 600);
-      case 'channels':
+      case 'artists':
         return results.filter((r): r is Channel => r.type === 'channel');
+      case 'playlists':
+        return results.filter((r): r is Playlist => r.type === 'playlist');
+      case 'albums':
+        // Albums are typically playlists with fewer videos or specific keywords
+        return results.filter((r): r is Playlist => 
+          r.type === 'playlist' && /album|ep|deluxe|edition/i.test(r.title)
+        );
       default:
         return results;
     }
   }, [results, category]);
 
-  const videos = filteredResults.filter((r): r is Video => r.type === 'video');
-  const channels = filteredResults.filter((r): r is Channel => r.type === 'channel');
+  const songs = results.filter((r): r is Video => r.type === 'video' && r.lengthSeconds < 600);
+  const videos = results.filter((r): r is Video => r.type === 'video');
+  const channels = results.filter((r): r is Channel => r.type === 'channel');
+  const playlists = results.filter((r): r is Playlist => r.type === 'playlist');
+
+  const handlePlayAllSongs = () => {
+    if (songs.length > 0) {
+      playAll(songs);
+    }
+  };
+
+  const handleShuffleSongs = () => {
+    if (songs.length > 0) {
+      const shuffled = [...songs].sort(() => Math.random() - 0.5);
+      playAll(shuffled);
+    }
+  };
+
+  const categories = [
+    { id: 'top' as const, label: 'Top results' },
+    { id: 'songs' as const, icon: Music, label: 'Songs' },
+    { id: 'videos' as const, icon: Film, label: 'Videos' },
+    { id: 'artists' as const, icon: User, label: 'Artists' },
+    { id: 'playlists' as const, icon: ListMusic, label: 'Playlists' },
+    { id: 'albums' as const, icon: Disc, label: 'Albums' },
+  ];
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 20 }}
-      className="fixed inset-0 z-40 flex flex-col"
-      style={{
-        background: 'linear-gradient(180deg, hsl(240 12% 8%) 0%, hsl(240 10% 4%) 100%)'
-      }}
+      className="fixed inset-0 z-40 flex flex-col bg-background"
     >
       {/* Header */}
-      <header className="p-4 border-b border-border/30 bg-background/80 backdrop-blur-xl">
+      <header className="p-4 border-b border-border/30 bg-background/95 backdrop-blur-xl sticky top-0 z-10">
         <form onSubmit={handleSubmit} className="flex items-center gap-3">
           <button
             type="button"
@@ -235,14 +287,10 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
         {/* Category Tabs */}
         {results.length > 0 && (
           <div className="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin">
-            {[
-              { id: 'songs', icon: Music, label: 'Songs' },
-              { id: 'videos', icon: Film, label: 'Videos' },
-              { id: 'channels', icon: User, label: 'Channels' },
-            ].map((cat) => (
+            {categories.map((cat) => (
               <button
                 key={cat.id}
-                onClick={() => setCategory(cat.id as CategoryType)}
+                onClick={() => setCategory(cat.id)}
                 className={cn(
                   "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap border",
                   category === cat.id
@@ -250,7 +298,7 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
                     : "bg-secondary/50 text-muted-foreground hover:text-foreground border-transparent hover:border-border/50"
                 )}
               >
-                <cat.icon className="w-4 h-4" />
+                {cat.icon && <cat.icon className="w-4 h-4" />}
                 {cat.label}
               </button>
             ))}
@@ -277,48 +325,285 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
           <div className="text-center py-16">
             <Search className="w-16 h-16 text-muted-foreground mx-auto mb-4 opacity-30" />
             <p className="text-lg text-muted-foreground">Search for your favorite music</p>
-            <p className="text-sm text-muted-foreground/70 mt-2">Find songs, artists, and more</p>
+            <p className="text-sm text-muted-foreground/70 mt-2">Find songs, artists, albums, and more</p>
           </div>
-        ) : (
-          <>
-            {/* Songs Grid */}
-            {(category === 'songs' || category === 'all') && videos.length > 0 && (
-              <section className="mb-8">
-                {category === 'all' && <h2 className="text-xl font-semibold mb-4 text-foreground">Songs</h2>}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                  {videos.map((video) => (
-                    <MusicCard key={video.videoId} video={video} onOpenChannel={onOpenChannel} />
-                  ))}
-                </div>
+        ) : category === 'top' ? (
+          /* Top Results - Mixed view like YouTube Music */
+          <div className="space-y-8">
+            {/* Artist Card (if found) */}
+            {artistInfo && (
+              <section>
+                <button
+                  onClick={() => onOpenChannel?.(artistInfo.author)}
+                  className="w-full max-w-md p-6 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary border border-border/30 hover:border-primary/50 transition-all text-left group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-20 h-20 rounded-full overflow-hidden bg-secondary ring-2 ring-border/50 group-hover:ring-primary/50 transition-all">
+                      <img
+                        src={artistInfo.authorThumbnails?.[artistInfo.authorThumbnails.length - 1]?.url || '/placeholder.svg'}
+                        alt={artistInfo.author}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-lg font-bold text-foreground">{artistInfo.author}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Artist • {artistInfo.subCount ? `${(artistInfo.subCount / 1000000).toFixed(1)}m monthly audience` : 'Artist'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-4">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleShuffleSongs();
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 rounded-full text-sm font-medium transition-colors"
+                    >
+                      <Shuffle className="w-4 h-4" />
+                      Shuffle
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handlePlayAllSongs();
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full text-sm font-medium transition-colors"
+                    >
+                      <PlayCircle className="w-4 h-4" />
+                      Mix
+                    </button>
+                  </div>
+                </button>
               </section>
             )}
-            
-            {/* Channels */}
-            {(category === 'channels' || category === 'all') && channels.length > 0 && (
-              <section className="mb-8">
-                {category === 'all' && <h2 className="text-xl font-semibold mb-4 text-foreground">Artists</h2>}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                  {channels.map((channel) => (
+
+            {/* Top Songs */}
+            {songs.length > 0 && (
+              <section>
+                <h2 className="text-lg font-bold text-foreground mb-4">Songs</h2>
+                <div className="space-y-1">
+                  {songs.slice(0, 6).map((song) => (
                     <button
-                      key={channel.authorId}
-                      onClick={() => onOpenChannel?.(channel.author)}
-                      className="p-5 rounded-2xl bg-card border border-border/30 hover:bg-accent hover:border-primary/30 transition-all text-center group"
+                      key={song.videoId}
+                      onClick={() => playTrack(song)}
+                      className="w-full flex items-center gap-4 p-3 rounded-xl hover:bg-secondary/50 transition-colors text-left group"
                     >
-                      <div className="w-24 h-24 mx-auto rounded-full overflow-hidden bg-secondary mb-4 ring-2 ring-border/50 group-hover:ring-primary/50 transition-all">
+                      <div className="relative w-12 h-12 rounded-lg overflow-hidden bg-secondary flex-shrink-0">
                         <img
-                          src={channel.authorThumbnails?.[0]?.url || '/placeholder.svg'}
-                          alt={channel.author}
-                          className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+                          src={song.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${song.videoId}/mqdefault.jpg`}
+                          alt={song.title}
+                          className="w-full h-full object-cover"
                         />
+                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <PlayCircle className="w-6 h-6 text-white" />
+                        </div>
                       </div>
-                      <p className="font-semibold text-foreground truncate">{channel.author}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {channel.subCount ? `${(channel.subCount / 1000).toFixed(0)}K subscribers` : 'Channel'}
-                      </p>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-foreground truncate">{song.title}</p>
+                        <p className="text-sm text-muted-foreground truncate">
+                          Song • {song.author} • {formatDuration(song.lengthSeconds)}
+                        </p>
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {formatPlays(song.viewCount)}
+                      </span>
                     </button>
                   ))}
                 </div>
               </section>
+            )}
+
+            {/* Albums (Playlists with album-like titles) */}
+            {playlists.filter(p => /album|ep|deluxe/i.test(p.title)).length > 0 && (
+              <section>
+                <h2 className="text-lg font-bold text-foreground mb-4">Albums</h2>
+                <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin">
+                  {playlists
+                    .filter(p => /album|ep|deluxe/i.test(p.title))
+                    .slice(0, 6)
+                    .map((album) => (
+                      <div key={album.playlistId} className="flex-shrink-0 w-36 group">
+                        <div className="relative aspect-square rounded-xl overflow-hidden bg-secondary">
+                          <img
+                            src={album.playlistThumbnail || '/placeholder.svg'}
+                            alt={album.title}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          />
+                        </div>
+                        <p className="font-medium text-foreground text-sm mt-2 truncate">{album.title}</p>
+                        <p className="text-xs text-muted-foreground truncate">Album • {album.author}</p>
+                      </div>
+                    ))}
+                </div>
+              </section>
+            )}
+
+            {/* Playlists */}
+            {playlists.filter(p => !/album|ep|deluxe/i.test(p.title)).length > 0 && (
+              <section>
+                <h2 className="text-lg font-bold text-foreground mb-4">Community playlists</h2>
+                <div className="space-y-1">
+                  {playlists
+                    .filter(p => !/album|ep|deluxe/i.test(p.title))
+                    .slice(0, 4)
+                    .map((playlist) => (
+                      <div
+                        key={playlist.playlistId}
+                        className="flex items-center gap-4 p-3 rounded-xl hover:bg-secondary/50 transition-colors"
+                      >
+                        <div className="w-12 h-12 rounded-lg overflow-hidden bg-secondary flex-shrink-0">
+                          <img
+                            src={playlist.playlistThumbnail || '/placeholder.svg'}
+                            alt={playlist.title}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-foreground truncate">{playlist.title}</p>
+                          <p className="text-sm text-muted-foreground truncate">
+                            Playlist • {playlist.author}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </section>
+            )}
+
+            {/* Videos */}
+            {videos.filter(v => v.lengthSeconds >= 600).length > 0 && (
+              <section>
+                <h2 className="text-lg font-bold text-foreground mb-4">Videos</h2>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {videos
+                    .filter(v => v.lengthSeconds >= 600)
+                    .slice(0, 4)
+                    .map((video) => (
+                      <MusicCard key={video.videoId} video={video} onOpenChannel={onOpenChannel} />
+                    ))}
+                </div>
+              </section>
+            )}
+          </div>
+        ) : (
+          /* Filtered view */
+          <>
+            {/* Songs Grid */}
+            {category === 'songs' && songs.length > 0 && (
+              <div className="space-y-1">
+                {songs.map((song) => (
+                  <button
+                    key={song.videoId}
+                    onClick={() => playTrack(song)}
+                    className="w-full flex items-center gap-4 p-3 rounded-xl hover:bg-secondary/50 transition-colors text-left group"
+                  >
+                    <div className="relative w-12 h-12 rounded-lg overflow-hidden bg-secondary flex-shrink-0">
+                      <img
+                        src={song.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${song.videoId}/mqdefault.jpg`}
+                        alt={song.title}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <PlayCircle className="w-6 h-6 text-white" />
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-foreground truncate">{song.title}</p>
+                      <p className="text-sm text-muted-foreground truncate">
+                        {song.author} • {formatDuration(song.lengthSeconds)}
+                      </p>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {formatPlays(song.viewCount)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Videos Grid */}
+            {category === 'videos' && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                {videos.map((video) => (
+                  <MusicCard key={video.videoId} video={video} onOpenChannel={onOpenChannel} />
+                ))}
+              </div>
+            )}
+            
+            {/* Artists */}
+            {category === 'artists' && channels.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {channels.map((channel) => (
+                  <button
+                    key={channel.authorId}
+                    onClick={() => onOpenChannel?.(channel.author)}
+                    className="p-5 rounded-2xl bg-card border border-border/30 hover:bg-accent hover:border-primary/30 transition-all text-center group"
+                  >
+                    <div className="w-24 h-24 mx-auto rounded-full overflow-hidden bg-secondary mb-4 ring-2 ring-border/50 group-hover:ring-primary/50 transition-all">
+                      <img
+                        src={channel.authorThumbnails?.[channel.authorThumbnails.length - 1]?.url || '/placeholder.svg'}
+                        alt={channel.author}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+                      />
+                    </div>
+                    <p className="font-semibold text-foreground truncate">{channel.author}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {channel.subCount ? `${(channel.subCount / 1000000).toFixed(1)}m subscribers` : 'Artist'}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Playlists */}
+            {category === 'playlists' && playlists.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {playlists.map((playlist) => (
+                  <div key={playlist.playlistId} className="group">
+                    <div className="relative aspect-square rounded-xl overflow-hidden bg-secondary">
+                      <img
+                        src={playlist.playlistThumbnail || '/placeholder.svg'}
+                        alt={playlist.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                      <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors" />
+                      <div className="absolute bottom-2 right-2 p-2 bg-primary rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg">
+                        <PlayCircle className="w-5 h-5 text-primary-foreground" />
+                      </div>
+                    </div>
+                    <p className="font-medium text-foreground text-sm mt-2 truncate">{playlist.title}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {playlist.author} • {playlist.videoCount} videos
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Albums */}
+            {category === 'albums' && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {playlists
+                  .filter(p => /album|ep|deluxe|edition/i.test(p.title))
+                  .map((album) => (
+                    <div key={album.playlistId} className="group">
+                      <div className="relative aspect-square rounded-xl overflow-hidden bg-secondary">
+                        <img
+                          src={album.playlistThumbnail || '/placeholder.svg'}
+                          alt={album.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                        />
+                        <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors" />
+                        <div className="absolute bottom-2 right-2 p-2 bg-primary rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg">
+                          <PlayCircle className="w-5 h-5 text-primary-foreground" />
+                        </div>
+                      </div>
+                      <p className="font-medium text-foreground text-sm mt-2 truncate">{album.title}</p>
+                      <p className="text-xs text-muted-foreground truncate">Album • {album.author}</p>
+                    </div>
+                  ))}
+              </div>
             )}
           </>
         )}
