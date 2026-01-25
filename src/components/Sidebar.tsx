@@ -84,7 +84,7 @@ export function Sidebar({ activeTab, onTabChange, onSignInClick, onSettingsClick
       {/* Greeting */}
       {!collapsed && (
         <div className="px-5 py-3">
-          <p className="text-sm text-foreground font-medium">{greeting} 👋</p>
+          <p className="text-sm text-foreground font-medium">{greeting} </p>
         </div>
       )}
 
