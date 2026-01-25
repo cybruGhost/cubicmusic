@@ -19,6 +19,10 @@ C-Music Premium is designed to be your **daily music companion**. Instead of ove
 From short hits to 10-hour chill sessions — C-Music has it all.
 
 ---
+<img width="1912" height="946" alt="Screenshot 2026-01-25 175638" src="https://github.com/user-attachments/assets/f0141433-85bf-4737-9ca6-1eb4bd33f687" />
+<img width="1908" height="934" alt="Screenshot 2026-01-25 175533" src="https://github.com/user-attachments/assets/b80823d1-092f-447e-a0ff-9d30f4f94340" />
+<img width="1880" height="930" alt="Screenshot 2026-01-25 175655" src="https://github.com/user-attachments/assets/60b31dbd-a5e7-4a84-b2f1-a74c21a6d1ee" />
+
 
 ## 🏠 Home Experience
 
