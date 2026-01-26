@@ -1,5 +1,5 @@
 
-# 🎶 C-Music Premium (DESKTOP)
+# 🎶 C-Music Premium (DESKTOP Based,check account to see android based)
 
 **C-Music Premium** is a modern, mood-driven music streaming experience built for people who don’t just *listen* to music — they **feel** it. Whether you’re relaxing, working out, studying, vibing late at night, or just chasing good energy, C-Music adapts to your moment.
 
