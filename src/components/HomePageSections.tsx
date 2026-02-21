@@ -6,8 +6,9 @@ import { usePlayerContext } from '@/context/PlayerContext';
 import { toast } from 'sonner';
 import { getPreferredArtists, getHistory } from '@/lib/storage';
 
-interface HomePageSectionsProps {
+export interface HomePageSectionsProps {
   onOpenChannel?: (artistName: string) => void;
+  moodFilter?: string;
 }
 
 function getThumbnail(video: VideoType): string {
@@ -164,11 +165,6 @@ const DIVERSE_GENRES = [
   'country music songs',
   'jazz lofi beats'
 ];
-
-interface HomePageSectionsProps {
-  onOpenChannel?: (artistName: string) => void;
-  moodFilter?: string;
-}
 
 export function HomePageSections({ onOpenChannel, moodFilter }: HomePageSectionsProps) {
   const [albums, setAlbums] = useState<VideoType[]>([]);
