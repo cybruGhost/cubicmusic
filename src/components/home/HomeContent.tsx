@@ -4,6 +4,7 @@ import { QuickPicksSection } from './QuickPicksSection';
 import { PlaylistSection } from './PlaylistSection';
 import { LongListensSection } from './LongListensSection';
 import { CreateMixSection } from './CreateMixSection';
+import { HomePageSections } from '@/components/HomePageSections';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
@@ -178,6 +179,9 @@ export function HomeContent({ onOpenChannel, moodFilter }: HomeContentProps) {
           )}
         </AnimatePresence>
       </section>
+
+      {/* Charts & Trending - like YT Music */}
+      <HomePageSections onOpenChannel={onOpenChannel} moodFilter={moodFilter} />
 
       {/* Long listens */}
       <LongListensSection onOpenChannel={onOpenChannel} />

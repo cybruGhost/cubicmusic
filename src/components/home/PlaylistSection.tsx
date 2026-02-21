@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Video } from '@/types/music';
 import { PlayCircle, ChevronRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { usePlayerContext } from '@/context/PlayerContext';
 import { motion } from 'framer-motion';
 
@@ -22,6 +23,9 @@ export function PlaylistSection({ title, playlists, onOpenChannel }: PlaylistSec
   const { playAll } = usePlayerContext();
   const [playlistVideos, setPlaylistVideos] = useState<Map<string, Video[]>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [showAll, setShowAll] = useState(false);
+
+  const visiblePlaylists = showAll ? playlists : playlists.slice(0, 5);
 
   useEffect(() => {
     const fetchPlaylists = async () => {
@@ -79,13 +83,18 @@ export function PlaylistSection({ title, playlists, onOpenChannel }: PlaylistSec
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-foreground">{title}</h2>
-        <button className="text-sm text-primary hover:underline flex items-center gap-1">
-          More <ChevronRight className="w-4 h-4" />
-        </button>
+        {playlists.length > 5 && (
+          <button 
+            onClick={() => setShowAll(!showAll)}
+            className="text-sm text-primary hover:underline flex items-center gap-1"
+          >
+            {showAll ? 'Show less' : 'More'} <ChevronRight className={cn("w-4 h-4 transition-transform", showAll && "rotate-90")} />
+          </button>
+        )}
       </div>
 
       <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin">
-        {playlists.map((playlist, index) => {
+        {visiblePlaylists.map((playlist, index) => {
           const videos = playlistVideos.get(playlist.title) || [];
           const thumbnail = videos[0]?.videoThumbnails?.[0]?.url || 
             `https://i.ytimg.com/vi/${videos[0]?.videoId}/mqdefault.jpg`;
