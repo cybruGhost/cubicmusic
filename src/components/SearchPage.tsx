@@ -1,11 +1,24 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ArrowLeft, Search, Music, User, Film, X, Clock, Disc, ListMusic, PlayCircle, Shuffle } from 'lucide-react';
+import { ArrowLeft, Search, Music, User, Film, X, Clock, Disc, ListMusic, PlayCircle, Shuffle, Heart, Download, Plus, MoreVertical } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Video, Channel, SearchResult, Playlist } from '@/types/music';
+import { Video, Channel, SearchResult, Playlist, UserPlaylist } from '@/types/music';
 import { MusicCard } from '@/components/MusicCard';
 import { usePlayerContext } from '@/context/PlayerContext';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { addFavorite, removeFavorite, isFavorite } from '@/lib/storage';
+import { getPlaylists, addTrackToPlaylist } from '@/lib/playlists';
+import { cacheAudio, isCached } from '@/lib/audioCache';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 
 const API_BASE = 'https://yt.omada.cafe/api/v1';
 
