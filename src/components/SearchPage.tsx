@@ -625,31 +625,7 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
             {category === 'songs' && songs.length > 0 && (
               <div className="space-y-1">
                 {songs.map((song) => (
-                  <button
-                    key={song.videoId}
-                    onClick={() => playTrack(song)}
-                    className="w-full flex items-center gap-4 p-3 rounded-xl hover:bg-secondary/50 transition-colors text-left group"
-                  >
-                    <div className="relative w-12 h-12 rounded-lg overflow-hidden bg-secondary flex-shrink-0">
-                      <img
-                        src={song.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${song.videoId}/mqdefault.jpg`}
-                        alt={song.title}
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <PlayCircle className="w-6 h-6 text-white" />
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-foreground truncate">{song.title}</p>
-                      <p className="text-sm text-muted-foreground truncate">
-                        {song.author} • {formatDuration(song.lengthSeconds)}
-                      </p>
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      {formatPlays(song.viewCount)}
-                    </span>
-                  </button>
+                  <SongRow key={song.videoId} song={song} onPlay={playTrack} onOpenChannel={onOpenChannel} />
                 ))}
               </div>
             )}
