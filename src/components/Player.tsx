@@ -607,7 +607,7 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
                 </div>
               </div>
             )}
-          </div>
+          </button>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-foreground truncate">
               {currentTrack.title}
