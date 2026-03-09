@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { cacheAudio, isCached as checkIsCached } from '@/lib/audioCache';
 import { 
   Play, 
   Pause, 
@@ -183,7 +184,7 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
     setLiked(!liked);
   };
 
-  // Download function - multiple fallbacks for reliability
+  // Download function - caches audio to IndexedDB for offline use
   const handleDownload = async () => {
     if (!currentTrack || isDownloading) return;
     
@@ -192,60 +193,57 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
     
     try {
       const videoId = currentTrack.videoId;
-      const safeTitle = currentTrack.title
-        .replace(/[^\w\s-]/gi, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .substring(0, 100);
       
-      // Method 1: Use y2mate API via proxy
-      const apiUrl = `https://pipedapi.kavin.rocks/streams/${videoId}`;
-      
-      const response = await fetch(apiUrl);
-      if (!response.ok) throw new Error('API failed');
-      
-      const data = await response.json();
-      
-      // Find best audio stream
-      const audioStreams = data.audioStreams || [];
-      const bestAudio = audioStreams
-        .filter((s: { mimeType?: string }) => s.mimeType?.includes('audio'))
-        .sort((a: { bitrate?: number }, b: { bitrate?: number }) => 
-          (b.bitrate || 0) - (a.bitrate || 0)
-        )[0];
-      
-      if (bestAudio?.url) {
-        toast.loading('Downloading audio...', { id: toastId });
-        
-        // Open in new tab for download (avoids CORS)
-        const link = document.createElement('a');
-        link.href = bestAudio.url;
-        link.download = `${safeTitle}.${bestAudio.format || 'webm'}`;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        toast.success('Download started!', { id: toastId });
+      // Check if already cached
+      const alreadyCached = await checkIsCached(videoId);
+      if (alreadyCached) {
+        toast.success('Already saved offline!', { id: toastId });
+        setIsDownloading(false);
         return;
       }
+
+      // Method 1: Use Invidious API
+      const API_BASE = 'https://yt.omada.cafe/api/v1';
+      let audioUrl: string | null = null;
       
-      throw new Error('No audio stream found');
+      try {
+        const response = await fetch(`${API_BASE}/videos/${videoId}?local=true`);
+        if (response.ok) {
+          const data = await response.json();
+          const audioFormat = data.adaptiveFormats?.find((f: any) => f.type?.startsWith('audio/'));
+          if (audioFormat?.url) audioUrl = audioFormat.url;
+        }
+      } catch {}
+      
+      // Method 2: Piped API fallback
+      if (!audioUrl) {
+        try {
+          toast.loading('Trying alternative source...', { id: toastId });
+          const pipedRes = await fetch(`https://pipedapi.kavin.rocks/streams/${videoId}`);
+          if (pipedRes.ok) {
+            const pipedData = await pipedRes.json();
+            const bestAudio = pipedData.audioStreams
+              ?.filter((s: any) => s.mimeType?.includes('audio'))
+              ?.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0))?.[0];
+            if (bestAudio?.url) audioUrl = bestAudio.url;
+          }
+        } catch {}
+      }
+      
+      if (audioUrl) {
+        toast.loading('Downloading audio...', { id: toastId });
+        const success = await cacheAudio(currentTrack, audioUrl);
+        if (success) {
+          toast.success('Saved for offline listening!', { id: toastId });
+        } else {
+          toast.error('Download failed', { id: toastId });
+        }
+      } else {
+        toast.error('Could not find audio stream', { id: toastId });
+      }
     } catch (error) {
       console.error('Download error:', error);
-      
-      // Fallback: Use loader.to service
-      try {
-        toast.loading('Trying alternative...', { id: toastId });
-        
-        const fallbackUrl = `https://www.y2mate.com/youtube/${currentTrack.videoId}`;
-        window.open(fallbackUrl, '_blank');
-        
-        toast.success('Opened download page', { id: toastId });
-      } catch {
-        toast.error('Download failed. Please try again.', { id: toastId });
-      }
+      toast.error('Download failed', { id: toastId });
     } finally {
       setIsDownloading(false);
     }
@@ -576,7 +574,11 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
       <div className="h-20 px-6 flex items-center gap-6 relative z-50 bg-background/95 border-t backdrop-blur supports-[backdrop-filter]:bg-background/60">
         {/* Track Info */}
         <div className="flex items-center gap-4 w-[300px] min-w-0">
-          <div className="relative w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 bg-secondary">
+          <button
+            onClick={onLyricsOpen}
+            className="relative w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 bg-secondary cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
+            title="Open Now Playing"
+          >
             <img
               src={getThumbnail(currentTrack)}
               alt={currentTrack.title}
@@ -603,7 +605,7 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
                 </div>
               </div>
             )}
-          </div>
+          </button>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-foreground truncate">
               {currentTrack.title}

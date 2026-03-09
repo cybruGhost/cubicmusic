@@ -1,11 +1,24 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ArrowLeft, Search, Music, User, Film, X, Clock, Disc, ListMusic, PlayCircle, Shuffle } from 'lucide-react';
+import { ArrowLeft, Search, Music, User, Film, X, Clock, Disc, ListMusic, PlayCircle, Shuffle, Heart, Download, Plus, MoreVertical } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Video, Channel, SearchResult, Playlist } from '@/types/music';
+import { Video, Channel, SearchResult, Playlist, UserPlaylist } from '@/types/music';
 import { MusicCard } from '@/components/MusicCard';
 import { usePlayerContext } from '@/context/PlayerContext';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { addFavorite, removeFavorite, isFavorite } from '@/lib/storage';
+import { getPlaylists, addTrackToPlaylist } from '@/lib/playlists';
+import { cacheAudio, isCached } from '@/lib/audioCache';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 
 const API_BASE = 'https://yt.omada.cafe/api/v1';
 
@@ -47,6 +60,149 @@ function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+// Song row with action buttons
+function SongRow({ song, onPlay, onOpenChannel }: { song: Video; onPlay: (v: Video) => void; onOpenChannel?: (name: string) => void }) {
+  const { addToQueue } = usePlayerContext();
+  const [liked, setLiked] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [playlists, setPlaylists] = useState<UserPlaylist[]>([]);
+
+  useEffect(() => {
+    setLiked(isFavorite(song.videoId));
+  }, [song.videoId]);
+
+  const handleLike = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (liked) {
+      removeFavorite(song.videoId);
+      toast.success('Removed from favorites');
+    } else {
+      addFavorite(song);
+      toast.success('Added to favorites');
+    }
+    setLiked(!liked);
+  };
+
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (downloading) return;
+    setDownloading(true);
+    toast.info('Caching for offline...');
+    try {
+      const API_BASE = 'https://yt.omada.cafe/api/v1';
+      const response = await fetch(`${API_BASE}/videos/${song.videoId}?local=true`);
+      const data = await response.json();
+      const audioFormat = data.adaptiveFormats?.find((f: any) => f.type?.startsWith('audio/'));
+      if (audioFormat?.url) {
+        const success = await cacheAudio(song, audioFormat.url);
+        if (success) {
+          toast.success('Saved for offline!');
+        } else {
+          throw new Error('Cache failed');
+        }
+      } else {
+        throw new Error('No audio');
+      }
+    } catch {
+      // Fallback: try Piped API
+      try {
+        const pipedRes = await fetch(`https://pipedapi.kavin.rocks/streams/${song.videoId}`);
+        const pipedData = await pipedRes.json();
+        const bestAudio = pipedData.audioStreams
+          ?.filter((s: any) => s.mimeType?.includes('audio'))
+          ?.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0))?.[0];
+        if (bestAudio?.url) {
+          const success = await cacheAudio(song, bestAudio.url);
+          if (success) {
+            toast.success('Saved for offline!');
+          } else {
+            toast.error('Download failed');
+          }
+        } else {
+          toast.error('Download failed');
+        }
+      } catch {
+        toast.error('Download failed');
+      }
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleAddToQueue = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    addToQueue(song);
+    toast.success('Added to queue');
+  };
+
+  return (
+    <div
+      onClick={() => onPlay(song)}
+      className="w-full flex items-center gap-4 p-3 rounded-xl hover:bg-secondary/50 transition-colors text-left group cursor-pointer"
+    >
+      <div className="relative w-12 h-12 rounded-lg overflow-hidden bg-secondary flex-shrink-0">
+        <img
+          src={song.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${song.videoId}/mqdefault.jpg`}
+          alt={song.title}
+          className="w-full h-full object-cover"
+        />
+        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+          <PlayCircle className="w-6 h-6 text-white" />
+        </div>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="font-medium text-foreground truncate">{song.title}</p>
+        <p className="text-sm text-muted-foreground truncate">
+          Song • {song.author} • {formatDuration(song.lengthSeconds)}
+        </p>
+      </div>
+      <span className="text-xs text-muted-foreground hidden sm:inline">
+        {formatPlays(song.viewCount)}
+      </span>
+      {/* Action Buttons */}
+      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button onClick={handleLike} className="p-1.5 hover:bg-accent rounded-full transition-colors" title={liked ? 'Unlike' : 'Like'}>
+          <Heart className={cn("w-4 h-4", liked ? "fill-primary text-primary" : "text-muted-foreground")} />
+        </button>
+        <button onClick={handleAddToQueue} className="p-1.5 hover:bg-accent rounded-full transition-colors" title="Add to queue">
+          <Plus className="w-4 h-4 text-muted-foreground" />
+        </button>
+        <button onClick={handleDownload} disabled={downloading} className="p-1.5 hover:bg-accent rounded-full transition-colors" title="Save offline">
+          <Download className={cn("w-4 h-4 text-muted-foreground", downloading && "animate-pulse")} />
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+            <button className="p-1.5 hover:bg-accent rounded-full transition-colors">
+              <MoreVertical className="w-4 h-4 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Add to Playlist</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {getPlaylists().length === 0 ? (
+                  <DropdownMenuItem disabled>No playlists</DropdownMenuItem>
+                ) : (
+                  getPlaylists().map((pl) => (
+                    <DropdownMenuItem key={pl.id} onClick={() => { addTrackToPlaylist(pl.id, song); toast.success(`Added to "${pl.name}"`); }}>
+                      {pl.name}
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            {onOpenChannel && (
+              <DropdownMenuItem onClick={() => onOpenChannel(song.author)}>
+                <User className="w-4 h-4 mr-2" /> View Artist
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
 }
 
 export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
@@ -384,31 +540,7 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
                 <h2 className="text-lg font-bold text-foreground mb-4">Songs</h2>
                 <div className="space-y-1">
                   {songs.slice(0, 6).map((song) => (
-                    <button
-                      key={song.videoId}
-                      onClick={() => playTrack(song)}
-                      className="w-full flex items-center gap-4 p-3 rounded-xl hover:bg-secondary/50 transition-colors text-left group"
-                    >
-                      <div className="relative w-12 h-12 rounded-lg overflow-hidden bg-secondary flex-shrink-0">
-                        <img
-                          src={song.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${song.videoId}/mqdefault.jpg`}
-                          alt={song.title}
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <PlayCircle className="w-6 h-6 text-white" />
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-foreground truncate">{song.title}</p>
-                        <p className="text-sm text-muted-foreground truncate">
-                          Song • {song.author} • {formatDuration(song.lengthSeconds)}
-                        </p>
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        {formatPlays(song.viewCount)}
-                      </span>
-                    </button>
+                    <SongRow key={song.videoId} song={song} onPlay={playTrack} onOpenChannel={onOpenChannel} />
                   ))}
                 </div>
               </section>
@@ -493,31 +625,7 @@ export function SearchPage({ onClose, onOpenChannel }: SearchPageProps) {
             {category === 'songs' && songs.length > 0 && (
               <div className="space-y-1">
                 {songs.map((song) => (
-                  <button
-                    key={song.videoId}
-                    onClick={() => playTrack(song)}
-                    className="w-full flex items-center gap-4 p-3 rounded-xl hover:bg-secondary/50 transition-colors text-left group"
-                  >
-                    <div className="relative w-12 h-12 rounded-lg overflow-hidden bg-secondary flex-shrink-0">
-                      <img
-                        src={song.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${song.videoId}/mqdefault.jpg`}
-                        alt={song.title}
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <PlayCircle className="w-6 h-6 text-white" />
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-foreground truncate">{song.title}</p>
-                      <p className="text-sm text-muted-foreground truncate">
-                        {song.author} • {formatDuration(song.lengthSeconds)}
-                      </p>
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      {formatPlays(song.viewCount)}
-                    </span>
-                  </button>
+                  <SongRow key={song.videoId} song={song} onPlay={playTrack} onOpenChannel={onOpenChannel} />
                 ))}
               </div>
             )}
