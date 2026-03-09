@@ -4,6 +4,7 @@ import { QuickPicksSection } from './QuickPicksSection';
 import { PlaylistSection } from './PlaylistSection';
 import { LongListensSection } from './LongListensSection';
 import { CreateMixSection } from './CreateMixSection';
+import { ChartsSection } from './ChartsSection';
 import { HomePageSections } from '@/components/HomePageSections';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
@@ -114,7 +115,8 @@ interface HomeContentProps {
 }
 
 export function HomeContent({ onOpenChannel, moodFilter }: HomeContentProps) {
-  const [activeChip, setActiveChip] = useState<string | null>(null);
+  // Auto-select first chip
+  const [activeChip, setActiveChip] = useState<string>(PLAYLIST_CHIPS[0].label);
 
   // Find the active chip's playlists
   const activeChipData = PLAYLIST_CHIPS.find(c => c.label === activeChip);
@@ -137,7 +139,7 @@ export function HomeContent({ onOpenChannel, moodFilter }: HomeContentProps) {
           {PLAYLIST_CHIPS.map((chip) => (
             <button
               key={chip.label}
-              onClick={() => setActiveChip(activeChip === chip.label ? null : chip.label)}
+              onClick={() => setActiveChip(chip.label)}
               className={cn(
                 "flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border",
                 activeChip === chip.label
@@ -152,7 +154,7 @@ export function HomeContent({ onOpenChannel, moodFilter }: HomeContentProps) {
 
         {/* Show selected chip's playlists */}
         <AnimatePresence mode="wait">
-          {activeChipData ? (
+          {activeChipData && (
             <motion.div
               key={activeChip}
               initial={{ opacity: 0, y: 10 }}
@@ -166,21 +168,14 @@ export function HomeContent({ onOpenChannel, moodFilter }: HomeContentProps) {
                 onOpenChannel={onOpenChannel}
               />
             </motion.div>
-          ) : (
-            <motion.div
-              key="default"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="text-sm text-muted-foreground text-center py-4"
-            >
-              Select a genre above to explore playlists
-            </motion.div>
           )}
         </AnimatePresence>
       </section>
 
-      {/* Charts & Trending - like YT Music */}
+      {/* Charts */}
+      <ChartsSection onOpenChannel={onOpenChannel} />
+
+      {/* Charts & Trending - For You, Albums, etc */}
       <HomePageSections onOpenChannel={onOpenChannel} moodFilter={moodFilter} />
 
       {/* Long listens */}
