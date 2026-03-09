@@ -576,7 +576,11 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
       <div className="h-20 px-6 flex items-center gap-6 relative z-50 bg-background/95 border-t backdrop-blur supports-[backdrop-filter]:bg-background/60">
         {/* Track Info */}
         <div className="flex items-center gap-4 w-[300px] min-w-0">
-          <div className="relative w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 bg-secondary">
+          <button
+            onClick={onLyricsOpen}
+            className="relative w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 bg-secondary cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
+            title="Open Now Playing"
+          >
             <img
               src={getThumbnail(currentTrack)}
               alt={currentTrack.title}
