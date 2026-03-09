@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { cacheAudio, isCached as checkIsCached } from '@/lib/audioCache';
 import { 
   Play, 
   Pause, 
