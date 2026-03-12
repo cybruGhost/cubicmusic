@@ -162,7 +162,7 @@ export function SamplesView() {
   const { playTrack } = usePlayerContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const scrollTimeout = useRef<NodeJS.Timeout>();
+  const scrollTimeout = useRef<ReturnType<typeof setTimeout>>();
   const loadMoreLock = useRef(false);
   const sampleBuffer = useRef<Video[]>([]);
 
