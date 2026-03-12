@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
-import { X, Music, Users, Calendar, Play, ExternalLink, Plus } from 'lucide-react';
+import { X, Music, Users, Play, ExternalLink, Plus, UserPlus, UserCheck, Heart, ListPlus, Download } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { searchVideos } from '@/lib/api';
 import { Video } from '@/types/music';
 import { toast } from 'sonner';
 import { usePlayerContext } from '@/context/PlayerContext';
+import { isFollowingArtist, followArtist, unfollowArtist } from '@/lib/followedArtists';
+import { addFavorite, removeFavorite, isFavorite } from '@/lib/storage';
+import { Button } from '@/components/ui/button';
 
 interface ChannelInfoProps {
   artistName: string;
@@ -14,18 +17,22 @@ interface ChannelInfoProps {
 export function ChannelInfo({ artistName, onClose }: ChannelInfoProps) {
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
-  const { playTrack, addToQueue } = usePlayerContext();
+  const [following, setFollowing] = useState(false);
+  const { playTrack, playAll, addToQueue } = usePlayerContext();
+
+  useEffect(() => {
+    setFollowing(isFollowingArtist(artistName));
+  }, [artistName]);
 
   useEffect(() => {
     const fetchChannelData = async () => {
       try {
         setLoading(true);
-        // Search for artist's videos
         const searchResults = await searchVideos(artistName);
         const artistVideos = searchResults.filter(video => 
           video.author?.toLowerCase().includes(artistName.toLowerCase())
         );
-        setVideos(artistVideos.slice(0, 20)); // Limit to 20 videos
+        setVideos(artistVideos.slice(0, 20));
       } catch (error) {
         console.error('Error fetching channel data:', error);
         toast.error('Failed to load channel data');
@@ -33,18 +40,42 @@ export function ChannelInfo({ artistName, onClose }: ChannelInfoProps) {
         setLoading(false);
       }
     };
-
     fetchChannelData();
   }, [artistName]);
 
+  const handleToggleFollow = () => {
+    if (following) {
+      unfollowArtist(artistName);
+      setFollowing(false);
+      toast.success(`Unfollowed ${artistName}`);
+    } else {
+      followArtist({
+        name: artistName,
+        thumbnail: videos[0] ? `https://i.ytimg.com/vi/${videos[0].videoId}/mqdefault.jpg` : undefined,
+        followedAt: Date.now(),
+      });
+      setFollowing(true);
+      toast.success(`Following ${artistName}`);
+    }
+  };
+
   const handlePlayTrack = (video: Video) => {
     playTrack(video);
-    onClose();
   };
 
   const handleAddToQueue = (video: Video) => {
     addToQueue(video);
     toast.success('Added to queue');
+  };
+
+  const handleToggleFav = (video: Video) => {
+    if (isFavorite(video.videoId)) {
+      removeFavorite(video.videoId);
+      toast.success('Removed from favorites');
+    } else {
+      addFavorite(video);
+      toast.success('Added to favorites');
+    }
   };
 
   return (
@@ -63,10 +94,10 @@ export function ChannelInfo({ artistName, onClose }: ChannelInfoProps) {
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-6 border-b bg-gradient-to-r from-primary/5 to-primary/10">
+        <div className="p-6 border-b border-border bg-gradient-to-r from-primary/5 to-primary/10">
           <div className="flex items-start justify-between">
             <div className="flex-1">
-              <h2 className="text-2xl font-bold">{artistName}</h2>
+              <h2 className="text-2xl font-bold text-foreground">{artistName}</h2>
               <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                   <Music className="w-4 h-4" />
@@ -74,8 +105,39 @@ export function ChannelInfo({ artistName, onClose }: ChannelInfoProps) {
                 </span>
                 <span className="flex items-center gap-1.5">
                   <Users className="w-4 h-4" />
-                  Artist Channel
+                  Artist
                 </span>
+              </div>
+              <div className="flex items-center gap-2 mt-4">
+                <Button
+                  onClick={handleToggleFollow}
+                  variant={following ? 'secondary' : 'default'}
+                  size="sm"
+                  className="gap-2"
+                >
+                  {following ? (
+                    <>
+                      <UserCheck className="w-4 h-4" />
+                      Following
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="w-4 h-4" />
+                      Follow
+                    </>
+                  )}
+                </Button>
+                {videos.length > 0 && (
+                  <Button
+                    onClick={() => playAll(videos)}
+                    size="sm"
+                    variant="outline"
+                    className="gap-2"
+                  >
+                    <Play className="w-4 h-4" />
+                    Play All
+                  </Button>
+                )}
               </div>
             </div>
             <button
@@ -97,90 +159,65 @@ export function ChannelInfo({ artistName, onClose }: ChannelInfoProps) {
               </div>
             </div>
           ) : (
-            <>
-              {/* Videos List */}
-              <div className="flex-1 overflow-y-auto p-4">
-                <div className="space-y-2">
-                  {videos.length === 0 ? (
-                    <div className="text-center py-12">
-                      <Music className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-                      <p className="text-muted-foreground">No tracks found for {artistName}</p>
-                    </div>
-                  ) : (
-                    videos.map((video, index) => (
-                      <div
-                        key={`${video.videoId}-${index}`}
-                        className="flex items-center gap-4 p-3 rounded-lg hover:bg-accent transition-colors group"
-                      >
-                        <div className="relative w-14 h-14 rounded-lg overflow-hidden flex-shrink-0">
-                          <img
-                            src={video.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg`}
-                            alt={video.title}
-                            className="w-full h-full object-cover"
-                          />
-                          <button
-                            onClick={() => handlePlayTrack(video)}
-                            className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <Play className="w-6 h-6 text-white" />
-                          </button>
-                        </div>
-                        
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{video.title}</p>
-                          <p className="text-sm text-muted-foreground truncate">{video.author}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs text-muted-foreground">
-                              {typeof video.lengthSeconds === 'number' ? formatDuration(video.lengthSeconds) : 'N/A'}
-                            </span>
-                            {video.viewCount && (
-                              <span className="text-xs text-muted-foreground">
-                                • {video.viewCount.toLocaleString()} views
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => handleAddToQueue(video)}
-                            className="p-2 hover:bg-secondary rounded-lg transition-colors"
-                            title="Add to queue"
-                          >
-                            <Plus className="w-4 h-4" />
-                          </button>
-                          <a
-                            href={`https://www.youtube.com/watch?v=${video.videoId}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="p-2 hover:bg-secondary rounded-lg transition-colors"
-                            title="Open on YouTube"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </a>
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="space-y-1">
+                {videos.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Music className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                    <p className="text-muted-foreground">No tracks found for {artistName}</p>
+                  </div>
+                ) : (
+                  videos.map((video, index) => (
+                    <div
+                      key={`${video.videoId}-${index}`}
+                      className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-accent transition-colors group"
+                    >
+                      <span className="text-xs text-muted-foreground w-5 text-right">{index + 1}</span>
+                      <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                        <img
+                          src={`https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg`}
+                          alt={video.title}
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          onClick={() => handlePlayTrack(video)}
+                          className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Play className="w-5 h-5 text-white fill-current" />
+                        </button>
+                      </div>
+                      
+                      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => handlePlayTrack(video)}>
+                        <p className="font-medium text-sm truncate text-foreground">{video.title}</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{formatDuration(video.lengthSeconds)}</span>
+                          {video.viewCount > 0 && (
+                            <span>• {formatViews(video.viewCount)}</span>
+                          )}
                         </div>
                       </div>
-                    ))
-                  )}
-                </div>
+                      
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => handleToggleFav(video)}
+                          className="p-2 hover:bg-secondary rounded-lg transition-colors"
+                          title="Favorite"
+                        >
+                          <Heart className={`w-4 h-4 ${isFavorite(video.videoId) ? 'fill-primary text-primary' : ''}`} />
+                        </button>
+                        <button
+                          onClick={() => handleAddToQueue(video)}
+                          className="p-2 hover:bg-secondary rounded-lg transition-colors"
+                          title="Add to queue"
+                        >
+                          <ListPlus className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
-
-              {/* Footer */}
-              <div className="p-4 border-t bg-muted/20">
-                <div className="flex justify-between items-center">
-                  <p className="text-sm text-muted-foreground">
-                    Showing {videos.length} tracks by {artistName}
-                  </p>
-                  <button
-                    onClick={() => window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(artistName)}`, '_blank')}
-                    className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    View on YouTube
-                  </button>
-                </div>
-              </div>
-            </>
+            </div>
           )}
         </div>
       </motion.div>
@@ -188,10 +225,15 @@ export function ChannelInfo({ artistName, onClose }: ChannelInfoProps) {
   );
 }
 
-// Helper function for duration formatting
 function formatDuration(seconds: number): string {
   if (!seconds) return '0:00';
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function formatViews(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M views`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(0)}K views`;
+  return `${count} views`;
 }
