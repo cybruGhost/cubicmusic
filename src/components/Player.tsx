@@ -64,6 +64,13 @@ export function Player({ onLyricsOpen, onOpenChannel, onSearch }: PlayerProps) {
     return localStorage.getItem('autoFetchEnabled') === 'true';
   });
   const [isDownloading, setIsDownloading] = useState(false);
+
+  const djMode = useDJMode({
+    onSkip: () => playNext(),
+    onPause: () => { if (isPlaying) togglePlay(); },
+    onResume: () => { if (!isPlaying) togglePlay(); },
+    onPlayRequest: (query) => onSearch?.(query),
+  });
   
   const {
     currentTrack,
