@@ -210,6 +210,10 @@ export default function Index() {
       <Player 
         onLyricsOpen={() => setShowLyrics(true)} 
         onOpenChannel={handleOpenChannel}
+        onSearch={(query) => {
+          setShowSearch(true);
+          // The search page will pick up the query
+        }}
       />
     </div>
   );
