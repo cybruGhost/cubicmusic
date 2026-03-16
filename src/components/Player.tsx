@@ -716,7 +716,40 @@ export function Player({ onLyricsOpen, onOpenChannel, onSearch }: PlayerProps) {
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-1 w-[280px] justify-end">
+        <div className="flex items-center gap-1 w-[320px] justify-end">
+          {/* DJ Mode Toggle */}
+          <button
+            onClick={djMode.toggle}
+            className={cn(
+              "p-2 rounded-full transition-colors relative",
+              djMode.isActive
+                ? "text-primary bg-primary/10"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            )}
+            title={djMode.isActive ? "DJ Mode ON" : "DJ Mode OFF"}
+          >
+            <Headphones className="w-4 h-4" />
+            {djMode.isSpeaking && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            )}
+          </button>
+
+          {/* DJ Voice Command */}
+          {djMode.isActive && (
+            <button
+              onClick={djMode.isListening ? djMode.stopListening : djMode.startListening}
+              className={cn(
+                "p-2 rounded-full transition-colors",
+                djMode.isListening
+                  ? "text-red-500 bg-red-500/10 animate-pulse"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
+              )}
+              title="Voice command"
+            >
+              <MicIcon className="w-4 h-4" />
+            </button>
+          )}
+
           {/* Auto-fetch Toggle */}
           <button
             onClick={handleAutoFetchToggle}
