@@ -50,9 +50,10 @@ function getThumbnail(video: { videoThumbnails?: { url: string; width: number }[
 interface PlayerProps {
   onLyricsOpen?: () => void;
   onOpenChannel?: (artist: string) => void;
+  onSearch?: (query: string) => void;
 }
 
-export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
+export function Player({ onLyricsOpen, onOpenChannel, onSearch }: PlayerProps) {
   const [liked, setLiked] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
