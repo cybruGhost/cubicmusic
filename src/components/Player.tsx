@@ -99,6 +99,10 @@ export function Player({ onLyricsOpen, onOpenChannel, onSearch }: PlayerProps) {
     if (currentTrack) {
       setLiked(isFavorite(currentTrack.videoId));
       addToHistory(currentTrack);
+      // DJ announcement
+      if (djMode.isActive) {
+        djMode.announceTrack(currentTrack, true);
+      }
     }
   }, [currentTrack?.videoId]);
 
