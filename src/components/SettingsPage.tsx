@@ -534,13 +534,34 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 <div>
                   <Label className="text-foreground cursor-pointer">Crossfade</Label>
                   <p className="text-sm text-muted-foreground">
-                    Smooth transitions between tracks
+                    15-second smooth DJ transitions between tracks
                   </p>
                 </div>
               </div>
               <Switch
                 checked={settings.crossfade}
                 onCheckedChange={(checked) => updateSettings({ crossfade: checked })}
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-3 rounded-lg hover:bg-accent/50 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Radio className="w-4 h-4 text-primary" />
+                </div>
+                <div>
+                  <Label className="text-foreground cursor-pointer">DJ Mode</Label>
+                  <p className="text-sm text-muted-foreground">
+                    AI DJ announces tracks & accepts voice commands
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={localStorage.getItem('cmusic_dj_mode') === 'true'}
+                onCheckedChange={(checked) => {
+                  localStorage.setItem('cmusic_dj_mode', checked.toString());
+                  toast.success(checked ? 'DJ Mode enabled!' : 'DJ Mode disabled');
+                }}
               />
             </div>
 
