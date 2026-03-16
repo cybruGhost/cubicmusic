@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Video, PlayerState } from '@/types/music';
 import { getRelatedVideos } from '@/lib/api';
-import { useYTPlayer } from './useYTPlayer';
+import { useCrossfade } from './useCrossfade';
+import { getSettings } from '@/lib/storage';
 
 interface ExtendedPlayerState extends PlayerState {
   shuffle: boolean;
@@ -9,7 +10,6 @@ interface ExtendedPlayerState extends PlayerState {
   history: Video[];
 }
 
-// YT PlayerState constants
 const YT_ENDED = 0;
 const YT_PLAYING = 1;
 const YT_PAUSED = 2;
@@ -31,40 +31,60 @@ export function usePlayer() {
   stateRef.current = state;
 
   const playTrackInternalRef = useRef<(track: Video, newQueue?: Video[]) => void>(() => {});
+  const crossfadePendingRef = useRef(false);
 
-  const ytPlayer = useYTPlayer({
-    onTimeUpdate: (time, duration) => {
-      setState(s => ({ ...s, currentTime: time, duration }));
-    },
-    onStateChange: (ytState) => {
-      if (ytState === YT_PLAYING) {
-        setState(s => ({ ...s, isPlaying: true }));
-      } else if (ytState === YT_PAUSED) {
-        setState(s => ({ ...s, isPlaying: false }));
-      } else if (ytState === YT_ENDED) {
-        setState(s => ({ ...s, isPlaying: false }));
-        handleTrackEnded();
+  const handleCrossfadeTransition = useCallback(() => {
+    // Called when we're ~15s from end and crossfade is enabled
+    if (crossfadePendingRef.current) return;
+    const { queue, shuffle, repeat, history } = stateRef.current;
+
+    let nextTrack: Video | null = null;
+    let newQueue: Video[] = [];
+
+    if (queue.length > 0) {
+      let nextIndex = 0;
+      if (shuffle && queue.length > 1) {
+        nextIndex = Math.floor(Math.random() * queue.length);
       }
-    },
-    onError: (code) => {
-      console.error('[Player] YT error code:', code);
-      // Try next track on error
-      const { queue } = stateRef.current;
-      if (queue.length > 0) {
-        const [next, ...rest] = queue;
-        playTrackInternalRef.current(next, rest);
-      } else {
-        setState(s => ({ ...s, isPlaying: false }));
-      }
-    },
-  });
+      newQueue = [...queue];
+      nextTrack = newQueue.splice(nextIndex, 1)[0];
+    } else if (repeat === 'all' && history.length > 0) {
+      const historyQueue = [...history];
+      const [first, ...rest] = historyQueue;
+      nextTrack = first;
+      newQueue = rest;
+    }
+
+    if (nextTrack) {
+      crossfadePendingRef.current = true;
+      const track = nextTrack;
+
+      // Update state for next track
+      setState(s => ({
+        ...s,
+        currentTrack: track,
+        currentTime: 0,
+        duration: 0,
+        history: s.currentTrack
+          ? [...s.history.filter(h => h.videoId !== s.currentTrack!.videoId), s.currentTrack]
+          : s.history,
+        queue: newQueue,
+      }));
+
+      cfPlayer.crossfadeToNext(track.videoId).then(() => {
+        crossfadePendingRef.current = false;
+      }).catch(() => {
+        crossfadePendingRef.current = false;
+      });
+    }
+  }, []);
 
   const handleTrackEnded = useCallback(() => {
     const { repeat, queue, shuffle, history } = stateRef.current;
 
     if (repeat === 'one') {
-      ytPlayer.seekTo(0);
-      ytPlayer.play();
+      cfPlayer.seekTo(0);
+      cfPlayer.play();
       return;
     }
 
@@ -83,9 +103,39 @@ export function usePlayer() {
     } else {
       setState(s => ({ ...s, isPlaying: false }));
     }
-  }, [ytPlayer]);
+  }, []);
+
+  const cfPlayer = useCrossfade({
+    onTimeUpdate: (time, duration) => {
+      setState(s => ({ ...s, currentTime: time, duration }));
+    },
+    onStateChange: (ytState) => {
+      if (ytState === YT_PLAYING) {
+        setState(s => ({ ...s, isPlaying: true }));
+      } else if (ytState === YT_PAUSED) {
+        setState(s => ({ ...s, isPlaying: false }));
+      } else if (ytState === YT_ENDED) {
+        setState(s => ({ ...s, isPlaying: false }));
+        if (!crossfadePendingRef.current) {
+          handleTrackEnded();
+        }
+      }
+    },
+    onError: (code) => {
+      console.error('[Player] YT error code:', code);
+      const { queue } = stateRef.current;
+      if (queue.length > 0) {
+        const [next, ...rest] = queue;
+        playTrackInternalRef.current(next, rest);
+      } else {
+        setState(s => ({ ...s, isPlaying: false }));
+      }
+    },
+    onTrackTransition: handleCrossfadeTransition,
+  });
 
   const playTrackInternal = useCallback((track: Video, newQueue?: Video[]) => {
+    crossfadePendingRef.current = false;
     setState(s => ({
       ...s,
       currentTrack: track,
@@ -98,13 +148,12 @@ export function usePlayer() {
       ...(newQueue !== undefined ? { queue: newQueue } : {}),
     }));
 
-    ytPlayer.loadVideo(track.videoId).catch((err) => {
+    cfPlayer.loadVideo(track.videoId).catch((err) => {
       console.error('[Player] Failed to load video:', err);
       setState(s => ({ ...s, isPlaying: false }));
     });
-  }, [ytPlayer]);
+  }, [cfPlayer]);
 
-  // Keep ref in sync
   playTrackInternalRef.current = playTrackInternal;
 
   const playTrack = useCallback((track: Video) => {
@@ -121,22 +170,22 @@ export function usePlayer() {
   const togglePlay = useCallback(() => {
     if (!stateRef.current.currentTrack) return;
     if (stateRef.current.isPlaying) {
-      ytPlayer.pause();
+      cfPlayer.pause();
     } else {
-      ytPlayer.play();
+      cfPlayer.play();
     }
-  }, [ytPlayer]);
+  }, [cfPlayer]);
 
   const seek = useCallback((time: number) => {
-    ytPlayer.seekTo(time);
+    cfPlayer.seekTo(time);
     setState(s => ({ ...s, currentTime: time }));
-  }, [ytPlayer]);
+  }, [cfPlayer]);
 
   const setVolume = useCallback((volume: number) => {
     const vol = Math.round(volume * 100);
-    ytPlayer.setVolume(vol);
+    cfPlayer.setVolume(vol);
     setState(s => ({ ...s, volume: vol }));
-  }, [ytPlayer]);
+  }, [cfPlayer]);
 
   const addToQueue = useCallback((track: Video) => {
     setState(s => {
@@ -162,7 +211,7 @@ export function usePlayer() {
   const playPrevious = useCallback(() => {
     const { history, currentTime } = stateRef.current;
     if (currentTime > 3) {
-      ytPlayer.seekTo(0);
+      cfPlayer.seekTo(0);
       setState(s => ({ ...s, currentTime: 0 }));
       return;
     }
@@ -172,7 +221,7 @@ export function usePlayer() {
       setState(s => ({ ...s, history: newHistory }));
       playTrackInternal(prevTrack);
     }
-  }, [playTrackInternal, ytPlayer]);
+  }, [playTrackInternal, cfPlayer]);
 
   const toggleShuffle = useCallback(() => {
     setState(s => ({ ...s, shuffle: !s.shuffle }));
@@ -203,14 +252,9 @@ export function usePlayer() {
       const currentId = stateRef.current.currentTrack?.videoId;
       const queueIds = new Set(stateRef.current.queue.map(t => t.videoId));
       const seen = new Set<string>();
-
       return related
         .filter(v => v.videoId !== currentId && !queueIds.has(v.videoId))
-        .filter(v => {
-          if (seen.has(v.videoId)) return false;
-          seen.add(v.videoId);
-          return true;
-        });
+        .filter(v => { if (seen.has(v.videoId)) return false; seen.add(v.videoId); return true; });
     } catch (e) {
       console.error('[Player] fetchRelatedTracks failed:', e);
       return [];

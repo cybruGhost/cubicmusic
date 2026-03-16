@@ -20,8 +20,11 @@ import {
   Plus,
   FolderPlus,
   Share2,
-  Info
+  Info,
+  Headphones,
+  MicIcon
 } from 'lucide-react';
+import { useDJMode } from '@/hooks/useDJMode';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayerContext } from '@/context/PlayerContext';
 import { Slider } from '@/components/ui/slider';
@@ -47,9 +50,10 @@ function getThumbnail(video: { videoThumbnails?: { url: string; width: number }[
 interface PlayerProps {
   onLyricsOpen?: () => void;
   onOpenChannel?: (artist: string) => void;
+  onSearch?: (query: string) => void;
 }
 
-export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
+export function Player({ onLyricsOpen, onOpenChannel, onSearch }: PlayerProps) {
   const [liked, setLiked] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -60,6 +64,13 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
     return localStorage.getItem('autoFetchEnabled') === 'true';
   });
   const [isDownloading, setIsDownloading] = useState(false);
+
+  const djMode = useDJMode({
+    onSkip: () => playNext(),
+    onPause: () => { if (isPlaying) togglePlay(); },
+    onResume: () => { if (!isPlaying) togglePlay(); },
+    onPlayRequest: (query) => onSearch?.(query),
+  });
   
   const {
     currentTrack,
@@ -88,6 +99,10 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
     if (currentTrack) {
       setLiked(isFavorite(currentTrack.videoId));
       addToHistory(currentTrack);
+      // DJ announcement
+      if (djMode.isActive) {
+        djMode.announceTrack(currentTrack, true);
+      }
     }
   }, [currentTrack?.videoId]);
 
@@ -701,7 +716,40 @@ export function Player({ onLyricsOpen, onOpenChannel }: PlayerProps) {
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-1 w-[280px] justify-end">
+        <div className="flex items-center gap-1 w-[320px] justify-end">
+          {/* DJ Mode Toggle */}
+          <button
+            onClick={djMode.toggle}
+            className={cn(
+              "p-2 rounded-full transition-colors relative",
+              djMode.isActive
+                ? "text-primary bg-primary/10"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            )}
+            title={djMode.isActive ? "DJ Mode ON" : "DJ Mode OFF"}
+          >
+            <Headphones className="w-4 h-4" />
+            {djMode.isSpeaking && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            )}
+          </button>
+
+          {/* DJ Voice Command */}
+          {djMode.isActive && (
+            <button
+              onClick={djMode.isListening ? djMode.stopListening : djMode.startListening}
+              className={cn(
+                "p-2 rounded-full transition-colors",
+                djMode.isListening
+                  ? "text-red-500 bg-red-500/10 animate-pulse"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
+              )}
+              title="Voice command"
+            >
+              <MicIcon className="w-4 h-4" />
+            </button>
+          )}
+
           {/* Auto-fetch Toggle */}
           <button
             onClick={handleAutoFetchToggle}
