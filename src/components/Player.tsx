@@ -20,8 +20,11 @@ import {
   Plus,
   FolderPlus,
   Share2,
-  Info
+  Info,
+  Headphones,
+  MicIcon
 } from 'lucide-react';
+import { useDJMode } from '@/hooks/useDJMode';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayerContext } from '@/context/PlayerContext';
 import { Slider } from '@/components/ui/slider';
