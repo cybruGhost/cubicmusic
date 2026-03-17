@@ -61,7 +61,8 @@ export function Player({ onLyricsOpen, onOpenChannel, onSearch }: PlayerProps) {
   const [playlists, setPlaylists] = useState<UserPlaylist[]>([]);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [autoFetchEnabled, setAutoFetchEnabled] = useState(() => {
-    return localStorage.getItem('autoFetchEnabled') === 'true';
+    const stored = localStorage.getItem('autoFetchEnabled');
+    return stored === null ? true : stored === 'true'; // Default ON
   });
   const [isDownloading, setIsDownloading] = useState(false);
 
