@@ -550,7 +550,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                   <Radio className="w-4 h-4 text-primary" />
                 </div>
                 <div>
-                  <Label className="text-foreground cursor-pointer">DJ Mode</Label>
+                  <Label className="text-foreground cursor-pointer">DJ Veida</Label>
                   <p className="text-sm text-muted-foreground">
                     AI DJ announces tracks & accepts voice commands
                   </p>
@@ -560,10 +560,41 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 checked={localStorage.getItem('cmusic_dj_mode') === 'true'}
                 onCheckedChange={(checked) => {
                   localStorage.setItem('cmusic_dj_mode', checked.toString());
-                  toast.success(checked ? 'DJ Mode enabled!' : 'DJ Mode disabled');
+                  toast.success(checked ? 'DJ Veida enabled!' : 'DJ Veida disabled');
                 }}
               />
             </div>
+
+            {/* DJ Personality Selector */}
+            {localStorage.getItem('cmusic_dj_mode') === 'true' && (
+              <div className="p-3 rounded-lg bg-accent/30">
+                <Label className="text-foreground mb-3 block">DJ Personality</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { value: 'chill', label: '😎 Chill', desc: 'Smooth & relaxed' },
+                    { value: 'hype', label: '🔥 Hype', desc: 'Energy & excitement' },
+                    { value: 'informative', label: '🧠 Informative', desc: 'Facts & insights' },
+                  ] as const).map(({ value, label, desc }) => (
+                    <button
+                      key={value}
+                      onClick={() => {
+                        localStorage.setItem('cmusic_dj_personality', value);
+                        toast.success(`DJ Veida: ${label} mode`);
+                      }}
+                      className={cn(
+                        "p-3 rounded-lg text-sm transition-all flex flex-col items-center text-center",
+                        (localStorage.getItem('cmusic_dj_personality') || 'chill') === value
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-secondary hover:bg-accent"
+                      )}
+                    >
+                      <span className="font-medium">{label}</span>
+                      <span className="text-xs opacity-80 mt-1">{desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center justify-between p-3 rounded-lg hover:bg-accent/50 transition-colors">
               <div className="flex items-center gap-3">

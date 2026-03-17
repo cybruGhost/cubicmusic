@@ -65,13 +65,6 @@ export function Player({ onLyricsOpen, onOpenChannel, onSearch }: PlayerProps) {
   });
   const [isDownloading, setIsDownloading] = useState(false);
 
-  const djMode = useDJMode({
-    onSkip: () => playNext(),
-    onPause: () => { if (isPlaying) togglePlay(); },
-    onResume: () => { if (!isPlaying) togglePlay(); },
-    onPlayRequest: (query) => onSearch?.(query),
-  });
-  
   const {
     currentTrack,
     isPlaying,
@@ -94,6 +87,14 @@ export function Player({ onLyricsOpen, onOpenChannel, onSearch }: PlayerProps) {
     addToQueue,
     fetchRelatedTracks,
   } = usePlayerContext();
+
+  // DJ Mode must be called unconditionally (after all other hooks above are stable)
+  const djMode = useDJMode({
+    onSkip: () => playNext(),
+    onPause: () => { if (isPlaying) togglePlay(); },
+    onResume: () => { if (!isPlaying) togglePlay(); },
+    onPlayRequest: (query) => onSearch?.(query),
+  });
 
   useEffect(() => {
     if (currentTrack) {
