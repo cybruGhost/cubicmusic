@@ -1,99 +1,82 @@
 /**
  * DJ Veida - Smart AI DJ that fetches real metadata from Wikipedia
  * Creates context-aware, varied announcements and doesn't talk every track
+ * Supports personality modes: chill, hype, informative
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Video } from '@/types/music';
 
-// Mood-based intros
-const MOOD_INTROS: Record<string, string[]> = {
-  happy: [
-    "This sunny vibe right here...",
-    "Can't help but smile to this one!",
-    "Pure joy incoming!",
-    "Happiness in audio form!",
-    "Good vibes only with this track.",
-  ],
-  sad: [
-    "For the feels...",
-    "This one hits different...",
-    "Let it out with this one.",
-    "Grab the tissues for this one.",
-    "Mood: melancholy. Let's sit with it.",
-  ],
-  energetic: [
-    "BANGER ALERT! 🚨",
-    "TURN IT UP!",
-    "Energy level: MAXIMUM!",
-    "This one's gonna get you moving!",
-    "Buckle up, this slaps HARD.",
-  ],
+export type DJPersonality = 'chill' | 'hype' | 'informative';
+
+// Personality-specific intros
+const PERSONALITY_INTROS: Record<DJPersonality, Record<string, string[]>> = {
+  chill: {
+    happy: ["Smooth vibes coming your way...", "Easy breezy, here we go.", "Let this one wash over you."],
+    sad: ["Let's slow it down...", "Feel this one out.", "Breathe and listen."],
+    energetic: ["Nice groove incoming.", "This one moves, trust me.", "Catch this wave."],
+    chill: ["Perfect chill energy.", "Float with this one...", "Easing into the zone."],
+    nostalgic: ["Remember this feeling?", "Classic vibes.", "Timeless, isn't it?"],
+    unknown: ["Here's something nice.", "Enjoy this one.", "Just vibes."],
+  },
+  hype: {
+    happy: ["LET'S GOOO! 🔥", "THIS ONE SLAPS!", "PURE FIRE!"],
+    sad: ["Even the sad ones HIT DIFFERENT!", "Feel it in your SOUL!", "EMOTIONAL BANGER!"],
+    energetic: ["BANGER ALERT! 🚨", "TURN IT ALL THE WAY UP!", "WE'RE NOT STOPPING!"],
+    chill: ["Don't sleep on this one!", "Smooth but it HITS!", "This is lowkey FLAMES!"],
+    nostalgic: ["THROWBACK ENERGY!", "WHO REMEMBERS THIS?!", "ICONIC!"],
+    unknown: ["YO CHECK THIS OUT!", "HERE WE GO!", "INCOMING!"],
+  },
+  informative: {
+    happy: ["An uplifting track here.", "This has a positive composition.", "Bright tonality in this piece."],
+    sad: ["A melancholic composition.", "Emotionally rich songwriting here.", "Note the minor key progression."],
+    energetic: ["High BPM energy here.", "Dynamic arrangement on this track.", "Strong rhythmic foundation."],
+    chill: ["Ambient textures in this one.", "Relaxed tempo and smooth production.", "Notice the layered harmonies."],
+    nostalgic: ["A significant piece in music history.", "This track influenced many artists.", "Culturally important track."],
+    unknown: ["Let me tell you about this track.", "Here's an interesting one.", "Worth knowing about."],
+  },
+};
+
+const GENRE_FLAVOR: Record<string, Record<DJPersonality, string>> = {
+  pop: { chill: "Smooth pop gem", hype: "POP PERFECTION!", informative: "A well-crafted pop track" },
+  rock: { chill: "Solid rock vibes", hype: "ROCK AND ROLL BABY!", informative: "Classic rock composition" },
+  hip: { chill: "Nice hip-hop flow", hype: "BARS ON BARS!", informative: "Notable hip-hop production" },
+  rap: { chill: "Clean bars", hype: "STRAIGHT FIRE!", informative: "Lyrically dense rap track" },
+  jazz: { chill: "Smooth jazz", hype: "JAZZ ENERGY!", informative: "Jazz-influenced arrangement" },
+  electronic: { chill: "Electronic bliss", hype: "DROP INCOMING!", informative: "Electronic production showcase" },
+  rnb: { chill: "Silky R&B", hype: "R&B HEAT!", informative: "R&B vocal performance" },
+  indie: { chill: "Indie vibes", hype: "INDIE BANGER!", informative: "Independent music gem" },
+  classical: { chill: "Timeless beauty", hype: "LEGENDARY PIECE!", informative: "Classical masterwork" },
+  unknown: { chill: "Good stuff", hype: "ABSOLUTE FIRE!", informative: "An interesting selection" },
+};
+
+// Personality-specific fillers
+const DJ_FILLERS: Record<DJPersonality, string[]> = {
   chill: [
-    "Keep it smooth...",
-    "Vibe mode: activated.",
-    "Just float with this one...",
-    "Ease into this groove.",
-    "Smooth sailing from here.",
+    "DJ Veida keeping it mellow.",
+    "Relax, we're just floating.",
+    "Veida's chill zone. Stay a while.",
+    "The vibes are immaculate right now.",
   ],
-  nostalgic: [
-    "Take it back...",
-    "Throwback alert!",
-    "Remember this one?",
-    "A classic that never gets old.",
-    "Nostalgia hitting hard right now.",
+  hype: [
+    "DJ VEIDA IN THE BUILDING!",
+    "WE DON'T STOP! WE WON'T STOP!",
+    "VEIDA'S PICKS, ZERO SKIPS!",
+    "IF YOU'RE FEELING THIS, MAKE SOME NOISE!",
+    "THE ENERGY IS UNMATCHED RIGHT NOW!",
   ],
-  unknown: [
-    "Coming up next, we got",
-    "Now playing",
-    "Let's vibe to",
-    "Check this out.",
-    "Here's something for you.",
+  informative: [
+    "DJ Veida, your music curator.",
+    "Knowledge is power, and so is good music.",
+    "Stay tuned for more musical insights.",
+    "Veida's curated selection continues.",
   ],
 };
 
-const GENRE_FLAVOR: Record<string, string> = {
-  pop: "Pure pop perfection",
-  rock: "Rock solid classic",
-  hip: "Real hip-hop vibes",
-  rap: "Straight fire bars",
-  jazz: "Smooth jazz energy",
-  classical: "Timeless masterpiece",
-  electronic: "Electronic excellence",
-  rnb: "Smooth R&B sensation",
-  soul: "Soulful vibes only",
-  metal: "Heavy metal thunder",
-  country: "Country roads calling",
-  indie: "Indie gem right here",
-  latin: "Latin heat",
-  reggae: "Island riddims",
-  blues: "Deep blues feeling",
-  punk: "Punk energy unleashed",
-  folk: "Folk storytelling at its finest",
-  unknown: "Absolute banger",
+const TRANSITIONS: Record<DJPersonality, string[]> = {
+  chill: ["Smoothly moving on...", "Let's drift to this...", "Easy transition here."],
+  hype: ["NOW SWITCH IT UP!", "KEEP THAT ENERGY!", "DON'T STOP!"],
+  informative: ["Transitioning now to...", "Next in the queue...", "Moving to an interesting pick."],
 };
-
-// Fun facts / filler DJ talk (used between songs randomly)
-const DJ_FILLERS = [
-  "DJ Veida keeping the vibes alive.",
-  "You're locked in with DJ Veida. Don't touch that dial.",
-  "This is your girl Veida, and the music don't stop.",
-  "The playlist is curated, the mood is set. Let's go.",
-  "DJ Veida here, mixing feelings and frequencies.",
-  "Stay with me, we're just getting started.",
-  "If you're feeling this, you've got good taste.",
-  "Veida's picks, zero skips. That's the motto.",
-];
-
-// Transition phrases between tracks
-const TRANSITIONS = [
-  "Alright, switching gears.",
-  "Now let me take you somewhere different.",
-  "Ooh, this next one though...",
-  "Keep that energy going with this.",
-  "Seamless transition into this beauty.",
-  "And just like that, we flow into...",
-  "Hold on, this one's special.",
-];
 
 interface DJModeOptions {
   onPlayRequest?: (query: string) => void;
@@ -121,28 +104,34 @@ export function useDJMode(options: DJModeOptions = {}) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [lastCommand, setLastCommand] = useState('');
   const [isFetching, setIsFetching] = useState(false);
+  const [personality, setPersonality] = useState<DJPersonality>(() => {
+    return (localStorage.getItem('cmusic_dj_personality') as DJPersonality) || 'chill';
+  });
 
   const optionsRef = useRef(options);
   optionsRef.current = options;
   const recognitionRef = useRef<any>(null);
   const lastAnnouncedRef = useRef<string>('');
   const metadataCache = useRef<Map<string, SongMetadata>>(new Map());
-  const trackCountRef = useRef(0); // tracks since last announcement
+  const trackCountRef = useRef(0);
   const totalTracksRef = useRef(0);
+  const personalityRef = useRef(personality);
+  personalityRef.current = personality;
 
   useEffect(() => {
     localStorage.setItem('cmusic_dj_mode', isActive.toString());
   }, [isActive]);
 
+  useEffect(() => {
+    localStorage.setItem('cmusic_dj_personality', personality);
+  }, [personality]);
+
   const random = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
-  // Should DJ Veida talk this time? Randomized - not every track
   const shouldAnnounce = useCallback((): boolean => {
     trackCountRef.current++;
-    // Always announce first track
     if (totalTracksRef.current <= 1) return true;
-    // Announce roughly every 2-4 tracks
-    const threshold = 2 + Math.floor(Math.random() * 3); // 2, 3, or 4
+    const threshold = 2 + Math.floor(Math.random() * 3);
     if (trackCountRef.current >= threshold) {
       trackCountRef.current = 0;
       return true;
@@ -150,7 +139,6 @@ export function useDJMode(options: DJModeOptions = {}) {
     return false;
   }, []);
 
-  // Fetch REAL metadata from Wikipedia
   const fetchSongMetadata = useCallback(async (artist: string, title: string): Promise<SongMetadata | null> => {
     const cacheKey = `${artist}-${title}`.toLowerCase();
     if (metadataCache.current.has(cacheKey)) {
@@ -160,9 +148,14 @@ export function useDJMode(options: DJModeOptions = {}) {
     setIsFetching(true);
     try {
       const searchQuery = encodeURIComponent(`${artist} ${title} song`);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      
       const searchRes = await fetch(
-        `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${searchQuery}&format=json&origin=*`
+        `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${searchQuery}&format=json&origin=*`,
+        { signal: controller.signal }
       );
+      clearTimeout(timeout);
       const searchData = await searchRes.json();
 
       if (!searchData.query?.search?.length) {
@@ -215,7 +208,6 @@ export function useDJMode(options: DJModeOptions = {}) {
     }
   }, []);
 
-  // Speak text using browser TTS
   const speak = useCallback((text: string, priority = false) => {
     if (!isActive && !priority) return;
     const synth = window.speechSynthesis;
@@ -223,10 +215,23 @@ export function useDJMode(options: DJModeOptions = {}) {
 
     if (priority) synth.cancel();
 
+    const p = personalityRef.current;
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = text.includes('BANGER') || text.includes('TURN IT UP') ? 1.12 : 1.0;
-    utterance.pitch = text.includes('sad') || text.includes('feels') ? 0.85 : 0.95;
-    utterance.volume = 0.85;
+    
+    // Personality-driven voice params
+    if (p === 'hype') {
+      utterance.rate = 1.15;
+      utterance.pitch = 1.05;
+      utterance.volume = 0.95;
+    } else if (p === 'chill') {
+      utterance.rate = 0.92;
+      utterance.pitch = 0.88;
+      utterance.volume = 0.8;
+    } else {
+      utterance.rate = 1.0;
+      utterance.pitch = 0.95;
+      utterance.volume = 0.85;
+    }
 
     const voices = synth.getVoices();
     const preferred = voices.find(v => v.name.includes('Google') && v.lang.startsWith('en'))
@@ -244,80 +249,72 @@ export function useDJMode(options: DJModeOptions = {}) {
     }
   }, [isActive]);
 
-  // Build a rich, varied announcement
   const buildAnnouncement = useCallback((
     cleanTitle: string,
     cleanArtist: string,
     metadata: SongMetadata | null,
     isTransition: boolean
   ): string => {
+    const p = personalityRef.current;
     const parts: string[] = [];
 
-    // Sometimes lead with a transition phrase
     if (isTransition && Math.random() > 0.4) {
-      parts.push(random(TRANSITIONS));
+      parts.push(random(TRANSITIONS[p]));
     }
 
     if (metadata && metadata.genre !== 'unknown') {
       const genreKey = Object.keys(GENRE_FLAVOR).find(g =>
         metadata.genre.toLowerCase().includes(g)
       ) || 'unknown';
-      const flavorText = GENRE_FLAVOR[genreKey];
-      const moodIntros = MOOD_INTROS[metadata.mood] || MOOD_INTROS.unknown;
+      const flavorText = GENRE_FLAVOR[genreKey]?.[p] || GENRE_FLAVOR.unknown[p];
+      const intros = PERSONALITY_INTROS[p][metadata.mood] || PERSONALITY_INTROS[p].unknown;
 
-      // Randomly pick an announcement style (variety!)
       const style = Math.floor(Math.random() * 5);
 
       switch (style) {
-        case 0: // Mood + title + fact
-          parts.push(`${random(moodIntros)} ${cleanTitle} by ${cleanArtist}.`);
+        case 0:
+          parts.push(`${random(intros)} ${cleanTitle} by ${cleanArtist}.`);
           if (metadata.year !== 'unknown') parts.push(`Dropped in ${metadata.year}.`);
-          if (metadata.chartPosition) parts.push(`This one actually charted!`);
+          if (metadata.chartPosition) parts.push(p === 'hype' ? 'This one CHARTED!' : 'This actually charted.');
           break;
-
-        case 1: // Genre flavor + trivia
+        case 1:
           parts.push(`${flavorText}. Here's ${cleanTitle} by ${cleanArtist}.`);
-          if (metadata.writer) parts.push(`Written by ${metadata.writer}.`);
-          else if (metadata.producer) parts.push(`Produced by ${metadata.producer}.`);
+          if (p === 'informative') {
+            if (metadata.writer) parts.push(`Written by ${metadata.writer}.`);
+            else if (metadata.producer) parts.push(`Produced by ${metadata.producer}.`);
+          }
           break;
-
-        case 2: // Album shoutout
-          parts.push(`${random(moodIntros)} ${cleanTitle} by ${cleanArtist}.`);
+        case 2:
+          parts.push(`${random(intros)} ${cleanTitle} by ${cleanArtist}.`);
           if (metadata.album !== 'unknown' && !metadata.album.includes(cleanTitle)) {
             parts.push(`From the album ${metadata.album}.`);
           }
-          if (metadata.year !== 'unknown') parts.push(`Year: ${metadata.year}.`);
           break;
-
-        case 3: // Short & punchy
-          parts.push(`${cleanArtist}. ${cleanTitle}. ${flavorText}. Let's go.`);
+        case 3:
+          parts.push(`${cleanArtist}. ${cleanTitle}. ${flavorText}.`);
           break;
-
-        case 4: // Wikipedia description lead
-          if (metadata.description && metadata.description.length > 20) {
-            // Use first sentence of wiki
+        case 4:
+          if (p === 'informative' && metadata.description && metadata.description.length > 20) {
             const firstSentence = metadata.description.split('.')[0];
             parts.push(`Fun fact: ${firstSentence}.`);
             parts.push(`That's ${cleanTitle} by ${cleanArtist}.`);
           } else {
-            parts.push(`${random(moodIntros)} ${cleanTitle} by ${cleanArtist}.`);
+            parts.push(`${random(intros)} ${cleanTitle} by ${cleanArtist}.`);
           }
           break;
       }
     } else {
-      // No metadata - keep it simple
-      parts.push(`${random(MOOD_INTROS.unknown)} ${cleanTitle} by ${cleanArtist}.`);
+      const intros = PERSONALITY_INTROS[p].unknown;
+      parts.push(`${random(intros)} ${cleanTitle} by ${cleanArtist}.`);
     }
 
-    // Randomly add a DJ filler at the end (~20% chance)
-    if (Math.random() < 0.2) {
-      parts.push(random(DJ_FILLERS));
+    if (Math.random() < 0.15) {
+      parts.push(random(DJ_FILLERS[p]));
     }
 
     return parts.join(' ');
   }, []);
 
-  // Announce a track with REAL intelligence
   const announceTrack = useCallback(async (track: Video, isTransition = false) => {
     if (!isActive) return;
 
@@ -326,7 +323,6 @@ export function useDJMode(options: DJModeOptions = {}) {
     lastAnnouncedRef.current = key;
     totalTracksRef.current++;
 
-    // Decide if we should talk this time
     if (!shouldAnnounce()) return;
 
     const cleanTitle = track.title
@@ -349,13 +345,11 @@ export function useDJMode(options: DJModeOptions = {}) {
       .replace(/Official$/i, '')
       .trim();
 
-    // Fetch metadata (async, cached)
     const metadata = await fetchSongMetadata(cleanArtist, cleanTitle);
     const announcement = buildAnnouncement(cleanTitle, cleanArtist, metadata, isTransition);
     speak(announcement);
   }, [isActive, speak, fetchSongMetadata, buildAnnouncement, shouldAnnounce]);
 
-  // Voice commands
   const startListening = useCallback(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
@@ -384,29 +378,35 @@ export function useDJMode(options: DJModeOptions = {}) {
   }, []);
 
   const handleCommand = useCallback((command: string) => {
+    const p = personalityRef.current;
     if (command.match(/\b(skip|next|change)\b/)) {
-      speak("Skipping! Let's see what's next.", true);
+      speak(p === 'hype' ? "NEXT ONE! LET'S GO!" : "Skipping! Let's see what's next.", true);
       optionsRef.current.onSkip?.();
     } else if (command.match(/\b(pause|stop|hold)\b/)) {
-      speak("Pausing the music. Say resume when you're ready.", true);
+      speak(p === 'chill' ? "Taking a breather." : "Pausing the music.", true);
       optionsRef.current.onPause?.();
     } else if (command.match(/\b(play|resume|continue)\b/)) {
       const playMatch = command.match(/play\s+(.+)/);
       if (playMatch) {
-        speak(`Searching for ${playMatch[1]}. One sec.`, true);
+        speak(`Searching for ${playMatch[1]}.`, true);
         optionsRef.current.onPlayRequest?.(playMatch[1]);
       } else {
-        speak("Resuming! Let's keep the vibe going.", true);
+        speak(p === 'hype' ? "WE'RE BACK!" : "Resuming!", true);
         optionsRef.current.onResume?.();
       }
     } else if (command.match(/what.*(play|song)/)) {
       speak("Check the screen for the current track info!", true);
-    } else if (command.match(/(louder|volume up|turn up)/)) {
-      speak("Turning it up!", true);
-    } else if (command.match(/(quieter|volume down|turn down)/)) {
-      speak("Bringing it down.", true);
     } else if (command.match(/(who are you|your name)/)) {
       speak("I'm DJ Veida. Your personal music companion. Voice, vibes, and variety.", true);
+    } else if (command.match(/(chill|relax)/)) {
+      setPersonality('chill');
+      speak("Switching to chill mode. Let's keep it easy.", true);
+    } else if (command.match(/(hype|energy|pump)/)) {
+      setPersonality('hype');
+      speak("HYPE MODE ACTIVATED! LET'S GO!", true);
+    } else if (command.match(/(inform|teach|learn|fact)/)) {
+      setPersonality('informative');
+      speak("Switching to informative mode. I'll share some music knowledge.", true);
     } else {
       speak(`Hmm, I heard ${command}. Try saying play, skip, or pause.`, true);
     }
@@ -423,7 +423,13 @@ export function useDJMode(options: DJModeOptions = {}) {
     if (next) {
       trackCountRef.current = 0;
       totalTracksRef.current = 0;
-      speak("DJ Veida is on the decks! Let's get this party started.", true);
+      const p = personalityRef.current;
+      const intros: Record<DJPersonality, string> = {
+        chill: "DJ Veida here. Let's keep it smooth.",
+        hype: "DJ VEIDA IS IN THE BUILDING! LET'S GET THIS PARTY STARTED!",
+        informative: "DJ Veida online. I'll be sharing music insights along the way.",
+      };
+      speak(intros[p], true);
     } else {
       window.speechSynthesis?.cancel();
       setIsSpeaking(false);
@@ -450,6 +456,11 @@ export function useDJMode(options: DJModeOptions = {}) {
     isSpeaking,
     isFetching,
     lastCommand,
+    personality,
+    setPersonality: (p: DJPersonality) => {
+      setPersonality(p);
+      localStorage.setItem('cmusic_dj_personality', p);
+    },
     toggle,
     announceTrack,
     startListening,
